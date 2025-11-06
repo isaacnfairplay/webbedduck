@@ -10,7 +10,8 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from webbed_duck.constants import TemplateApplicationError, apply_constants
-from webbed_duck.examples import (
+from webbed_duck._templating.parameters import StringParameterWhitelist
+from examples import (
     BUILTIN_DATE_FORMAT_EXPECTATIONS,
     BUILTIN_NUMBER_FORMAT_EXPECTATIONS,
     BUILTIN_TIMESTAMP_FORMAT_EXPECTATIONS,
@@ -46,6 +47,20 @@ def test_unapproved_string_is_blocked(request_context):
     with pytest.raises(
         TemplateApplicationError,
         match=r"String constant 'unapproved' is not present in the whitelist",
+    ):
+        apply_constants(template, request_context=request_context)
+
+
+def test_whitelist_rejects_disallowed_entries(request_context):
+    allowed = request_context["parameters"]["str"]["whitelist"].allowed
+    request_context["parameters"]["str"]["whitelist"] = StringParameterWhitelist(
+        requested={"source_path", "report_name", "unapproved"},
+        allowed=allowed,
+    )
+    template = "{{ ctx.constants.str.unapproved }}"
+    with pytest.raises(
+        TemplateApplicationError,
+        match=r"String whitelist contains keys outside the allowed set: unapproved",
     ):
         apply_constants(template, request_context=request_context)
 

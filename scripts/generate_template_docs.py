@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from webbed_duck.constants import apply_constants
-from webbed_duck.examples import (
+from examples import (
     BUILTIN_TEMPLATE_CASES,
     EXAMPLE_TEMPLATE_CASES,
     SQL_TEMPLATE_CASE,
@@ -47,23 +48,19 @@ def render_case_markdown(case, context) -> str:
         "## Context excerpt",
         "",
     ]
-    constants = context["constants"]
-    if "number" in constants:
-        constants["number"] = dict(constants["number"])
-    if "timestamp" in constants:
-        constants["timestamp"] = dict(constants["timestamp"])
-    if "date" in constants:
-        constants["date"] = dict(constants["date"])
     lines.append("```json")
-    lines.append(_format_context(constants))
+    lines.append(_format_json(context["constants"]))
     lines.append("```")
+    parameters = context.get("parameters")
+    if parameters:
+        lines.extend(["", "## Parameters", "", "```json", _format_json(parameters), "```"])
     if case.description:
         lines.extend(["", case.description])
     lines.append("")
     return "\n".join(lines)
 
 
-def _format_context(constants):
+def _format_json(value: Any) -> str:
     import json
 
     def default(obj):
@@ -71,7 +68,17 @@ def _format_context(constants):
             return obj.isoformat()
         return str(obj)
 
-    return json.dumps(constants, default=default, indent=2, sort_keys=True)
+    return json.dumps(_normalise_for_json(value), default=default, indent=2, sort_keys=True)
+
+
+def _normalise_for_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalise_for_json(inner) for key, inner in value.items()}
+    if is_dataclass(value):
+        return _normalise_for_json(asdict(value))
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    return value
 
 
 def main() -> None:

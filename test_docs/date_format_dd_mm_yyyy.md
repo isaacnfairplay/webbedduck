@@ -35,4 +35,46 @@
 }
 ```
 
+## Parameters
+
+```json
+{
+  "date": {
+    "format": {
+      "mm-dd-yy": "%m-%d-%y",
+      "month-name": "%B %d, %Y",
+      "yyyy-mm-dd": "%Y-%m-%d"
+    }
+  },
+  "number": {
+    "format": {
+      "decimal": ",.3f",
+      "percent": {
+        "spec": ".0%"
+      }
+    }
+  },
+  "str": {
+    "whitelist": {
+      "allowed": [
+        "report_name",
+        "source_path"
+      ],
+      "label": "String whitelist",
+      "requested": [
+        "report_name",
+        "source_path"
+      ]
+    }
+  },
+  "timestamp": {
+    "format": {
+      "iso": "ISO",
+      "unix": "UNIX",
+      "unix_ms": "UNIX_MS"
+    }
+  }
+}
+```
+
 Applies the 'dd-mm-yyyy' date formatter.

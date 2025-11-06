@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, Mapping, Sequence
 
+from webbed_duck._templating.parameters import StringParameterWhitelist
+
 __all__ = [
     "TemplateCase",
     "build_report_request_context",
@@ -33,6 +35,12 @@ class TemplateCase:
 _BASE_DATE = dt.date(2024, 1, 31)
 _BASE_TIMESTAMP = dt.datetime(2024, 1, 31, 12, 15, 33, tzinfo=dt.timezone.utc)
 
+_REPORT_STRING_WHITELIST_ALLOWED = frozenset({"source_path", "report_name"})
+_REPORT_STRING_WHITELIST = StringParameterWhitelist(
+    requested=_REPORT_STRING_WHITELIST_ALLOWED,
+    allowed=_REPORT_STRING_WHITELIST_ALLOWED,
+)
+
 _BASE_CONTEXT: Dict[str, Any] = {
     "constants": {
         "str": {
@@ -55,7 +63,9 @@ _BASE_CONTEXT: Dict[str, Any] = {
         },
     },
     "parameters": {
-        "str": {"whitelist": {"source_path", "report_name"}},
+        "str": {
+            "whitelist": _REPORT_STRING_WHITELIST
+        },
         "date": {
             "format": {
                 "yyyy-mm-dd": "%Y-%m-%d",
