@@ -1,0 +1,38 @@
+# Number Percent
+
+```sql
+12%
+```
+
+## Template
+
+```jinja
+{{ ctx.constants.number.discount | number_format('percent') }}
+```
+
+## Context excerpt
+
+```json
+{
+  "date": {
+    "run": "2024-01-31"
+  },
+  "misc": {
+    "active": true,
+    "optional": null
+  },
+  "number": {
+    "discount": "0.125",
+    "visitors": 12456
+  },
+  "str": {
+    "report_name": "Daily Metrics",
+    "source_path": "/srv/data/reports"
+  },
+  "timestamp": {
+    "created": "2024-01-31T12:15:33+00:00"
+  }
+}
+```
+
+Shows a discount value as a rounded percentage.
