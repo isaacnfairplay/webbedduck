@@ -13,8 +13,16 @@ from .formatters import (
     DEFAULT_TIMESTAMP_FORMATS,
     merge_formats,
 )
+from .parameters import ParameterWhitelist, StringParameterWhitelist
 
-__all__ = ["StringNamespace", "PreparedContext", "RequestContextStore", "prepare_context"]
+__all__ = [
+    "StringNamespace",
+    "ParameterWhitelist",
+    "StringParameterWhitelist",
+    "PreparedContext",
+    "RequestContextStore",
+    "prepare_context",
+]
 
 
 class StringNamespace(dict):
@@ -91,9 +99,8 @@ def prepare_context(request_context: Mapping[str, Any]) -> PreparedContext:
     constants: MutableMapping[str, Any] = dict(context_mapping.get("constants", {}))
     parameters = dict(context_mapping.get("parameters", {}))
 
-    whitelist = parameters.get("str", {}).get("whitelist", frozenset())
-    if not isinstance(whitelist, Iterable):
-        raise TemplateApplicationError("String whitelist must be iterable")
+    whitelist_spec = parameters.get("str", {}).get("whitelist", frozenset())
+    whitelist = _resolve_string_whitelist(whitelist_spec)
 
     str_constants = dict(constants.get("str", {}))
     constants["str"] = StringNamespace(str_constants, whitelist)
@@ -116,3 +123,15 @@ def prepare_context(request_context: Mapping[str, Any]) -> PreparedContext:
         timestamp_formats=timestamp_formats,
         number_formats=number_formats,
     )
+
+
+def _resolve_string_whitelist(spec: Any) -> frozenset[str]:
+    if isinstance(spec, ParameterWhitelist):
+        return spec.resolve()
+    if spec is None:
+        return frozenset()
+    if isinstance(spec, str):
+        raise TemplateApplicationError("String whitelist must be an iterable of keys")
+    if not isinstance(spec, Iterable):
+        raise TemplateApplicationError("String whitelist must be iterable")
+    return frozenset(spec)
