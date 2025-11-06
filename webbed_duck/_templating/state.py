@@ -97,28 +97,44 @@ def ensure_mapping(obj: Any) -> Mapping[str, Any]:
 def prepare_context(request_context: Mapping[str, Any]) -> PreparedContext:
     context_mapping = ensure_mapping(request_context)
     constants: MutableMapping[str, Any] = dict(context_mapping.get("constants", {}))
-    parameters = dict(context_mapping.get("parameters", {}))
+    raw_parameters = context_mapping.get("parameters", {})
 
-    whitelist_spec = parameters.get("str", {}).get("whitelist", frozenset())
+    template_parameters: Mapping[str, Any]
+    parameters_config: MutableMapping[str, Any]
+
+    if hasattr(raw_parameters, "for_template") and callable(
+        getattr(raw_parameters, "for_template")
+    ):
+        template_parameters = raw_parameters.for_template()
+        config_mapping = getattr(raw_parameters, "configuration", {})
+        if not isinstance(config_mapping, Mapping):
+            parameters_config = {}
+        else:
+            parameters_config = copy.deepcopy(dict(config_mapping))
+    else:
+        parameters_config = dict(raw_parameters)
+        template_parameters = copy.deepcopy(parameters_config)
+
+    whitelist_spec = parameters_config.get("str", {}).get("whitelist", frozenset())
     whitelist = _resolve_string_whitelist(whitelist_spec)
 
     str_constants = dict(constants.get("str", {}))
     constants["str"] = StringNamespace(str_constants, whitelist)
 
     date_formats = merge_formats(
-        DEFAULT_DATE_FORMATS, parameters.get("date", {}).get("format")
+        DEFAULT_DATE_FORMATS, parameters_config.get("date", {}).get("format")
     )
     timestamp_formats = merge_formats(
-        DEFAULT_TIMESTAMP_FORMATS, parameters.get("timestamp", {}).get("format")
+        DEFAULT_TIMESTAMP_FORMATS, parameters_config.get("timestamp", {}).get("format")
     )
     number_formats = merge_formats(
-        DEFAULT_NUMBER_FORMATS, parameters.get("number", {}).get("format")
+        DEFAULT_NUMBER_FORMATS, parameters_config.get("number", {}).get("format")
     )
 
     constants_copy = copy.deepcopy(constants)
     return PreparedContext(
         constants=constants_copy,
-        parameters=copy.deepcopy(parameters),
+        parameters=template_parameters,
         date_formats=date_formats,
         timestamp_formats=timestamp_formats,
         number_formats=number_formats,
