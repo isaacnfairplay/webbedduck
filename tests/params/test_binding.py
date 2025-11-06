@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from examples import build_report_request_context
 from webbed_duck._templating.binding import (
     ParameterBindingError,
     ValidationContext,
 )
 from webbed_duck._templating.errors import TemplateApplicationError
 from webbed_duck._templating.renderer import TemplateRenderer
+from webbed_duck._templating.state import prepare_context
 
 
 def build_validation(manifest: dict[str, object]) -> ValidationContext:
@@ -235,4 +237,33 @@ def test_binding_respects_unknown_parameter_policy() -> None:
 
     filtered = context.for_binding(used_names={"dynamic"})
     assert filtered == {"dynamic": "value"}
+
+
+def test_parameter_context_preserves_whitelist_for_constants() -> None:
+    request_context = build_report_request_context()
+    validation = build_validation(
+        {
+            "parameters": {
+                "limit": {
+                    "type": "integer",
+                    "allow_template": True,
+                }
+            }
+        }
+    )
+
+    parameter_context = validation.resolve({"limit": 5}).with_configuration(
+        request_context["parameters"]
+    )
+
+    prepared = prepare_context(
+        {
+            "constants": request_context["constants"],
+            "parameters": parameter_context,
+        }
+    )
+
+    assert prepared.constants["str"]["report_name"] == "Daily Metrics"
+    with pytest.raises(TemplateApplicationError):
+        _ = prepared.constants["str"]["unapproved"]
 

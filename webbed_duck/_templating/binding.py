@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, Mapping
@@ -115,10 +116,15 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
     def __init__(
         self,
         parameters: Mapping[str, ResolvedParameter],
+        *,
+        configuration: Mapping[str, Any] | None = None,
     ) -> None:
         self._parameters: Dict[str, ResolvedParameter] = dict(parameters)
         self._template_consumed: set[str] = set()
         self._template_view: Mapping[str, Any] | None = None
+        self._configuration: Mapping[str, Any] = {}
+        if configuration is not None:
+            self.attach_configuration(configuration)
 
     def __getitem__(self, key: str) -> ResolvedParameter:
         return self._parameters[key]
@@ -128,6 +134,27 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
 
     def __len__(self) -> int:
         return len(self._parameters)
+
+    @property
+    def configuration(self) -> Mapping[str, Any]:
+        """Return the stored template configuration for the context."""
+
+        return self._configuration
+
+    def attach_configuration(self, configuration: Mapping[str, Any]) -> None:
+        """Store ``configuration`` for later use during context preparation."""
+
+        if not isinstance(configuration, Mapping):
+            raise TemplateApplicationError(
+                "Parameter configuration must be a mapping"
+            )
+        self._configuration = copy.deepcopy(configuration)
+
+    def with_configuration(self, configuration: Mapping[str, Any]) -> "ParameterContext":
+        """Attach ``configuration`` and return ``self`` for chaining."""
+
+        self.attach_configuration(configuration)
+        return self
 
     @classmethod
     def from_manifest(

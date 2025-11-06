@@ -106,7 +106,11 @@ def prepare_context(request_context: Mapping[str, Any]) -> PreparedContext:
         getattr(raw_parameters, "for_template")
     ):
         template_parameters = raw_parameters.for_template()
-        parameters_config = {}
+        config_mapping = getattr(raw_parameters, "configuration", {})
+        if not isinstance(config_mapping, Mapping):
+            parameters_config = {}
+        else:
+            parameters_config = copy.deepcopy(dict(config_mapping))
     else:
         parameters_config = dict(raw_parameters)
         template_parameters = copy.deepcopy(parameters_config)
