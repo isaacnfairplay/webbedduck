@@ -41,8 +41,12 @@ def test_extra_context_entries_are_ignored(request_context):
 
 
 def test_unapproved_string_is_blocked(request_context):
+    request_context["constants"]["str"]["unapproved"] = "DROP TABLE"
     template = "{{ ctx.constants.str.unapproved }}"
-    with pytest.raises(TemplateApplicationError):
+    with pytest.raises(
+        TemplateApplicationError,
+        match=r"String constant 'unapproved' is not present in the whitelist",
+    ):
         apply_constants(template, request_context=request_context)
 
 

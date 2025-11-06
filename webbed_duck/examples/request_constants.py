@@ -125,6 +125,12 @@ EXAMPLE_TEMPLATE_CASES: Sequence[TemplateCase] = (
         description="Fetches a whitelisted string constant.",
     ),
     TemplateCase(
+        slug="string_report_name",
+        template="{{ ctx.constants.str.report_name }}",
+        expected=_BASE_CONTEXT["constants"]["str"]["report_name"],
+        description="Fetches another whitelisted string constant.",
+    ),
+    TemplateCase(
         slug="date_format_yyyy_mm_dd",
         template="{{ ctx.constants.date.run | date_format('yyyy-mm-dd') }}",
         expected="2024-01-31",
