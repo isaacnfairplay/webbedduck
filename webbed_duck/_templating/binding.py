@@ -169,9 +169,7 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
         consumed_keys: set[str] = set()
 
         for name, spec in context.specs.items():
-            raw_value = provided.get(name, _MISSING)
-            provenance = "provided"
-            if raw_value is _MISSING:
+            if (raw_value := provided.get(name, _MISSING)) is _MISSING:
                 if spec.default is not _MISSING:
                     raw_value = spec.default
                     provenance = "default"
@@ -182,6 +180,7 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                     continue
             else:
                 consumed_keys.add(name)
+                provenance = "provided"
 
             try:
                 value = _coerce_value(name, spec.type, raw_value)
@@ -189,8 +188,7 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                 errors.append(str(exc))
                 continue
 
-            guard_errors = _run_guards(name, value, spec.guards, resolved)
-            if guard_errors:
+            if guard_errors := _run_guards(name, value, spec.guards, resolved):
                 errors.extend(guard_errors)
                 continue
 
@@ -203,32 +201,27 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                 spec=spec,
             )
 
-        unknown_keys = set(provided.keys()) - consumed_keys
-        unknown_parameters: Dict[str, Any] = {}
-        if unknown_keys:
-            if not context.allow_unknown_parameters:
-                ordered = sorted(unknown_keys)
-                if len(ordered) == 1:
-                    errors.append(f"Unknown parameter '{ordered[0]}'")
-                else:
-                    errors.append(
-                        "Unknown parameters: " + ", ".join(ordered)
-                    )
-            else:
-                unknown_parameters = {key: provided[key] for key in unknown_keys}
+        unknown_parameters, unknown_errors = _collect_unknown_parameters(
+            provided, consumed_keys, context.allow_unknown_parameters
+        )
+        errors.extend(unknown_errors)
 
         if errors:
             raise ParameterBindingError("; ".join(errors))
 
-        for key, value in unknown_parameters.items():
-            resolved[key] = ResolvedParameter(
-                name=key,
-                value=value,
-                provenance="provided",
-                allow_template=False,
-                allow_binding=True,
-                spec=None,
-            )
+        resolved.update(
+            {
+                key: ResolvedParameter(
+                    name=key,
+                    value=value,
+                    provenance="provided",
+                    allow_template=False,
+                    allow_binding=True,
+                    spec=None,
+                )
+                for key, value in unknown_parameters.items()
+            }
+        )
 
         return cls(resolved)
 
@@ -274,6 +267,24 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
     @property
     def template_consumed(self) -> set[str]:
         return set(self._template_consumed)
+
+
+def _collect_unknown_parameters(
+    provided: Mapping[str, Any],
+    consumed_keys: set[str],
+    allow_unknown: bool,
+) -> tuple[dict[str, Any], list[str]]:
+    if not (unknown_keys := set(provided) - consumed_keys):
+        return {}, []
+    if not allow_unknown:
+        ordered = sorted(unknown_keys)
+        message = (
+            f"Unknown parameter '{ordered[0]}'"
+            if len(ordered) == 1
+            else "Unknown parameters: " + ", ".join(ordered)
+        )
+        return {}, [message]
+    return {key: provided[key] for key in unknown_keys}, []
 
 
 def _coerce_value(name: str, type_name: str, value: Any) -> Any:
