@@ -42,12 +42,13 @@ def _stringify(value: Any) -> str:
 def _normalize_items(mapping: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...]:
     if not mapping:
         return tuple()
-    normalized: list[tuple[str, str]] = []
-    for key in sorted(mapping.keys()):
-        value = mapping[key]
-        encoded = NULL_SENTINEL if value is None else _stringify(value)
-        normalized.append((str(key), encoded))
-    return tuple(normalized)
+    return tuple(
+        (
+            str(key),
+            NULL_SENTINEL if (value := mapping[key]) is None else _stringify(value),
+        )
+        for key in sorted(mapping)
+    )
 
 
 def _ensure_sequence(value: Any) -> Sequence[Any]:
@@ -56,6 +57,20 @@ def _ensure_sequence(value: Any) -> Sequence[Any]:
     if isinstance(value, (list, tuple, set)):
         return tuple(value)
     return (value,)
+
+
+def _encode_constant_value(
+    key: str,
+    value: Any,
+    filters: Mapping[str, InvariantFilter],
+    invariant_tokens: dict[str, tuple[str, ...]],
+) -> str:
+    filter_config = filters.get(key)
+    if filter_config is None:
+        return NULL_SENTINEL if value is None else _stringify(value)
+    tokens = filter_config.normalize(value)
+    invariant_tokens[key] = tokens
+    return filter_config.encode(tokens)
 
 
 def _compute_digest(route_slug: str, parameters: tuple[tuple[str, str], ...], constants: tuple[tuple[str, str], ...]) -> str:
@@ -98,24 +113,25 @@ class InvariantFilter:
     def normalize(self, value: Any) -> tuple[str, ...]:
         if value is None:
             return (NULL_SENTINEL,)
-        tokens: list[str] = []
+        candidates: Iterable[Any]
         if isinstance(value, str):
-            candidates: Iterable[Any] = value.split(self.separator)
+            candidates = value.split(self.separator)
         else:
             candidates = _ensure_sequence(value)
-        for token in candidates:
-            if token is None:
-                tokens.append(NULL_SENTINEL)
+        normalized: list[str] = []
+        for candidate in candidates:
+            if candidate is None:
+                normalized.append(NULL_SENTINEL)
                 continue
-            string_token = str(token).strip()
-            if not string_token:
+            token = str(candidate).strip()
+            if not token:
                 continue
-            normalized = string_token.lower() if self.case_insensitive else string_token
-            tokens.append(normalized)
-        if not tokens:
+            if self.case_insensitive:
+                token = token.lower()
+            normalized.append(token)
+        if not normalized:
             return tuple()
-        deduplicated = list(dict.fromkeys(tokens))
-        return tuple(sorted(deduplicated))
+        return tuple(sorted(dict.fromkeys(normalized)))
 
     def encode(self, tokens: tuple[str, ...]) -> str:
         if not tokens:
@@ -202,19 +218,14 @@ class CacheKey:
         const_copy = {str(key): _decode_null(value) for key, value in (constants or {}).items()}
         normalized_params = _normalize_items(params_copy)
         filters = invariant_filters or {}
-        normalized_constants: list[tuple[str, str]] = []
         invariant_tokens: dict[str, tuple[str, ...]] = {}
-        for key in sorted(const_copy.keys()):
-            value = const_copy[key]
-            filter_config = filters.get(key)
-            if filter_config is not None:
-                tokens = filter_config.normalize(value)
-                invariant_tokens[key] = tokens
-                encoded_value = filter_config.encode(tokens)
-            else:
-                encoded_value = NULL_SENTINEL if value is None else _stringify(value)
-            normalized_constants.append((key, encoded_value))
-        normalized_constants_tuple = tuple(normalized_constants)
+        normalized_constants_tuple = tuple(
+            (
+                key,
+                _encode_constant_value(key, const_copy[key], filters, invariant_tokens),
+            )
+            for key in sorted(const_copy)
+        )
         digest = _compute_digest(route_slug, normalized_params, normalized_constants_tuple)
         return cls(
             route_slug=route_slug,
@@ -482,30 +493,42 @@ class Cache:
         )
 
     def _apply_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
+        filtered = self._apply_invariant_filters(table, key)
+        return self._apply_constant_filters(filtered, key)
+
+    def _apply_invariant_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
         filtered = table
         for name, tokens in key.invariant_tokens.items():
             filter_config = self._invariants.get(name)
             if filter_config is None:
                 continue
             filtered = filter_config.apply(filtered, tokens)
-        for column, target in key.constant_values.items():
-            if column in self._invariants:
-                continue
-            if column not in filtered.column_names:
-                continue
-            column_data = filtered[column]
-            if target is None:
-                predicate = pc.is_null(column_data)
-            else:
-                try:
-                    scalar = pa.scalar(target, type=column_data.type)
-                except (pa.ArrowTypeError, pa.ArrowInvalid):
-                    scalar = pa.scalar(target)
-                predicate = pc.equal(column_data, scalar)
+        return filtered
+
+    def _apply_constant_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
+        filtered = table
+        constant_items = [
+            (column, target)
+            for column, target in key.constant_values.items()
+            if column not in self._invariants and column in filtered.column_names
+        ]
+        for column, target in constant_items:
+            predicate = self._constant_predicate(filtered[column], target)
             if isinstance(predicate, pa.ChunkedArray):
                 predicate = predicate.combine_chunks()
             filtered = filtered.filter(predicate)
         return filtered
+
+    def _constant_predicate(
+        self, column_data: pa.Array | pa.ChunkedArray, target: Any
+    ) -> pa.Array | pa.ChunkedArray:
+        if target is None:
+            return pc.is_null(column_data)
+        try:
+            scalar = pa.scalar(target, type=column_data.type)
+        except (pa.ArrowTypeError, pa.ArrowInvalid):
+            scalar = pa.scalar(target)
+        return pc.equal(column_data, scalar)
 
     def _build_result(
         self,
@@ -543,17 +566,8 @@ class Cache:
             for name, tokens in key.invariant_tokens.items()
         }
         for entry in candidates:
-            if entry.key.digest == key.digest:
-                continue
-            if dict(entry.key.parameter_values) != requested_params:
-                continue
-            if not self._non_invariant_equal(entry.key.constant_values, requested_constants):
-                continue
-            if set(entry.invariants.keys()) != set(requested_invariants.keys()):
-                continue
-            if not all(requested_invariants[name].issubset(set(entry.invariants[name])) for name in requested_invariants):
-                continue
-            return entry
+            if self._entry_is_superset(entry, key, requested_params, requested_constants, requested_invariants):
+                return entry
         return None
 
     def _non_invariant_equal(
@@ -567,3 +581,24 @@ class Cache:
             key: value for key, value in requested_constants.items() if key not in invariant_names
         }
         return existing_filtered == requested_filtered
+
+    def _entry_is_superset(
+        self,
+        entry: CacheEntry,
+        key: CacheKey,
+        requested_params: Mapping[str, Any],
+        requested_constants: Mapping[str, Any],
+        requested_invariants: Mapping[str, set[str]],
+    ) -> bool:
+        entry_invariants = {name: set(tokens) for name, tokens in entry.invariants.items()}
+        matches = (
+            entry.key.digest != key.digest
+            and dict(entry.key.parameter_values) == requested_params
+            and self._non_invariant_equal(entry.key.constant_values, requested_constants)
+            and entry_invariants.keys() == requested_invariants.keys()
+            and all(
+                requested_invariants[name].issubset(entry_invariants[name])
+                for name in requested_invariants
+            )
+        )
+        return matches
