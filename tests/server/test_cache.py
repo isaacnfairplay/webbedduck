@@ -306,3 +306,40 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     again = cache.fetch_or_populate(same_key)
     assert call_counter["count"] == 1
     assert again.to_pylist() == rows_vip
+
+
+def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path) -> None:
+    clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
+    config = CacheConfig(
+        storage_root=tmp_cache_dir,
+        ttl=_dt.timedelta(minutes=1),
+        page_size=10,
+        invariants={"user_id": InvariantFilter("user_id")},
+    )
+
+    rows = [
+        (1, "alice"),
+        (2, "bob"),
+        (3, "carol"),
+    ]
+    columns = ["user_id", "name"]
+    table = _build_duckdb_table(rows, columns)
+
+    call_counter: dict[str, int] = {"count": 0}
+
+    def runner(route_slug: str, parameters: Dict[str, Any], constants: Dict[str, Any]) -> pa.Table:
+        call_counter["count"] += 1
+        return table
+
+    cache = Cache(config=config, run_query=runner, clock=clock.now)
+
+    key = CacheKey.from_parts(
+        "reports/users",
+        parameters={},
+        constants={"user_id": 2},
+        invariant_filters=config.invariants,
+    )
+
+    result = cache.fetch_or_populate(key)
+    assert call_counter["count"] == 1
+    assert result.to_pylist() == [{"user_id": 2, "name": "bob"}]

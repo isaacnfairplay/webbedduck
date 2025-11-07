@@ -134,9 +134,10 @@ class InvariantFilter:
         column_for_compare = column_data
         if self.case_insensitive and pa.types.is_string(column_data.type):
             column_for_compare = pc.utf8_lower(column_data)
+        compare_type = column_for_compare.type
         predicate: pa.Array | pa.ChunkedArray | None = None
         if compare_tokens:
-            token_array = pa.array(compare_tokens, type=pa.string())
+            token_array = pa.array(compare_tokens, type=compare_type)
             predicate = pc.is_in(column_for_compare, value_set=token_array)
         if include_null:
             null_predicate = pc.is_null(column_data)
