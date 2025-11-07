@@ -31,6 +31,7 @@ class TemplateRenderer:
             "parameters": self._prepared.parameters,
         }
         self._modifier_handlers: Dict[str, Callable[[Any, list[Any], dict[str, Any]], Any]] = {
+            "coalesce": self._handle_coalesce,
             "date_offset": self._handle_date_offset,
             "date_format": self._handle_date_format,
             "timestamp_format": self._handle_timestamp_format,
@@ -50,10 +51,10 @@ class TemplateRenderer:
         if not segments:
             raise TemplateApplicationError("Empty template expression")
 
-        value = self._resolve_path(segments[0])
-        for modifier in segments[1:]:
-            if not modifier:
-                continue
+        base, *modifier_segments = segments
+        value = self._resolve_path(base)
+        filtered_modifiers = [segment for segment in modifier_segments if segment]
+        for modifier in filtered_modifiers:
             value = self._apply_modifier(value, modifier)
         return value
 
@@ -117,14 +118,16 @@ class TemplateRenderer:
         args = [self._literal_eval(arg) for arg in call.args]
         kwargs = {kw.arg: self._literal_eval(kw.value) for kw in call.keywords}
 
-        if func_name == "coalesce":
-            default = args[0] if args else kwargs.get("default")
-            return value if value is not None else default
-
         handler = self._modifier_handlers.get(func_name)
         if handler is None:
             raise TemplateApplicationError(f"Unknown modifier '{func_name}'")
         return handler(value, args, kwargs)
+
+    def _handle_coalesce(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> Any:
+        default = args[0] if args else kwargs.get("default")
+        return value if value is not None else default
 
     def _handle_date_offset(
         self, value: Any, args: list[Any], kwargs: dict[str, Any]
