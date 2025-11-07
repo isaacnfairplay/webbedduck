@@ -31,8 +31,12 @@ class StringNamespace(dict):
     def __init__(self, data: Mapping[str, Any], whitelist: Iterable[str]):
         super().__init__(data)
         self._whitelist = frozenset(whitelist)
-        for key in list(self.keys()):
-            self._ensure_allowed(key)
+        invalid_keys = set(self) - self._whitelist
+        if invalid_keys:
+            invalid = next(iter(invalid_keys))
+            raise TemplateApplicationError(
+                f"String constant '{invalid}' is not present in the whitelist"
+            )
 
     def _ensure_allowed(self, key: str) -> None:
         if key not in self._whitelist:
