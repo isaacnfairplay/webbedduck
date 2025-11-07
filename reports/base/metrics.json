@@ -1,0 +1,1359 @@
+{
+  "generated_at": "2025-11-07T18:46:37.145397+00:00",
+  "root": "/tmp/base_metrics",
+  "files": [
+    {
+      "path": "scripts/generate_template_docs.py",
+      "raw": {
+        "loc": 100,
+        "lloc": 60,
+        "sloc": 77,
+        "comments": 1,
+        "multi": 0,
+        "blank": 21
+      },
+      "cyclomatic": {
+        "total": 14.0,
+        "average": 2.8,
+        "functions": [
+          {
+            "name": "iter_cases",
+            "lineno": 25,
+            "endline": 30,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "render_case_markdown",
+            "lineno": 33,
+            "endline": 60,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_format_json",
+            "lineno": 63,
+            "endline": 71,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_normalise_for_json",
+            "lineno": 74,
+            "endline": 81,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "main",
+            "lineno": 84,
+            "endline": 96,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 58.23585796640543,
+      "halstead": {
+        "bugs": 0.005169925001442312,
+        "volume": 15.509775004326936,
+        "length": 6,
+        "vocabulary": 6
+      },
+      "function_count": 5,
+      "expression_count": 226
+    },
+    {
+      "path": "webbed_duck/__init__.py",
+      "raw": {
+        "loc": 5,
+        "lloc": 3,
+        "sloc": 2,
+        "comments": 0,
+        "multi": 0,
+        "blank": 2
+      },
+      "cyclomatic": {
+        "total": 0,
+        "average": 0.0,
+        "functions": []
+      },
+      "maintainability_index": 100.0,
+      "halstead": {
+        "bugs": 0.0,
+        "volume": 0,
+        "length": 0,
+        "vocabulary": 0
+      },
+      "function_count": 0,
+      "expression_count": 6
+    },
+    {
+      "path": "webbed_duck/_templating/__init__.py",
+      "raw": {
+        "loc": 23,
+        "lloc": 6,
+        "sloc": 20,
+        "comments": 0,
+        "multi": 0,
+        "blank": 2
+      },
+      "cyclomatic": {
+        "total": 0,
+        "average": 0.0,
+        "functions": []
+      },
+      "maintainability_index": 100.0,
+      "halstead": {
+        "bugs": 0.0,
+        "volume": 0,
+        "length": 0,
+        "vocabulary": 0
+      },
+      "function_count": 0,
+      "expression_count": 11
+    },
+    {
+      "path": "webbed_duck/_templating/binding.py",
+      "raw": {
+        "loc": 686,
+        "lloc": 395,
+        "sloc": 560,
+        "comments": 4,
+        "multi": 0,
+        "blank": 117
+      },
+      "cyclomatic": {
+        "total": 159.0,
+        "average": 3.8780487804878048,
+        "functions": [
+          {
+            "name": "_collect_unknown_parameters",
+            "lineno": 272,
+            "endline": 287,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_coerce_value",
+            "lineno": 290,
+            "endline": 313,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "_coerce_boolean",
+            "lineno": 316,
+            "endline": 329,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_run_guards",
+            "lineno": 332,
+            "endline": 352,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_choices_guard",
+            "lineno": 356,
+            "endline": 370,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_regex_guard",
+            "lineno": 373,
+            "endline": 388,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_guard_mapping",
+            "lineno": 391,
+            "endline": 399,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_prepare_numeric_bounds",
+            "lineno": 413,
+            "endline": 420,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_bound_errors",
+            "lineno": 424,
+            "endline": 432,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_length_guard",
+            "lineno": 436,
+            "endline": 456,
+            "complexity": 8.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_range_guard",
+            "lineno": 460,
+            "endline": 492,
+            "complexity": 13.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_datetime_window_guard",
+            "lineno": 495,
+            "endline": 547,
+            "complexity": 8.0,
+            "kind": "function"
+          },
+          {
+            "name": "_validate_compare_guard",
+            "lineno": 551,
+            "endline": 602,
+            "complexity": 11.0,
+            "kind": "function"
+          },
+          {
+            "name": "_as_float",
+            "lineno": 605,
+            "endline": 611,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_as_int",
+            "lineno": 614,
+            "endline": 620,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_parse_datetime_for_guard",
+            "lineno": 623,
+            "endline": 643,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "_format_datetime_boundary",
+            "lineno": 647,
+            "endline": 650,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_datetimes_mixed_timezone_awareness",
+            "lineno": 653,
+            "endline": 658,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "ParameterBindingError",
+            "lineno": 26,
+            "endline": 29,
+            "complexity": 1.0,
+            "kind": "class"
+          },
+          {
+            "name": "ParameterSpec",
+            "lineno": 33,
+            "endline": 71,
+            "complexity": 5.0,
+            "kind": "class"
+          },
+          {
+            "name": "from_manifest",
+            "lineno": 45,
+            "endline": 71,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "ValidationContext",
+            "lineno": 76,
+            "endline": 100,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "from_manifest",
+            "lineno": 83,
+            "endline": 97,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "resolve",
+            "lineno": 99,
+            "endline": 100,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "ResolvedParameter",
+            "lineno": 104,
+            "endline": 112,
+            "complexity": 1.0,
+            "kind": "class"
+          },
+          {
+            "name": "ParameterContext",
+            "lineno": 115,
+            "endline": 269,
+            "complexity": 3.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 118,
+            "endline": 129,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "__getitem__",
+            "lineno": 131,
+            "endline": 132,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "__iter__",
+            "lineno": 134,
+            "endline": 135,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "__len__",
+            "lineno": 137,
+            "endline": 138,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "configuration",
+            "lineno": 141,
+            "endline": 144,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "attach_configuration",
+            "lineno": 146,
+            "endline": 153,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "with_configuration",
+            "lineno": 155,
+            "endline": 159,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "from_manifest",
+            "lineno": 162,
+            "endline": 226,
+            "complexity": 9.0,
+            "kind": "function"
+          },
+          {
+            "name": "for_template",
+            "lineno": 228,
+            "endline": 255,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "for_binding",
+            "lineno": 257,
+            "endline": 264,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "template_consumed",
+            "lineno": 268,
+            "endline": 269,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_CompareOperator",
+            "lineno": 661,
+            "endline": 675,
+            "complexity": 2.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 664,
+            "endline": 666,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "compare",
+            "lineno": 668,
+            "endline": 669,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "message",
+            "lineno": 671,
+            "endline": 675,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 9.022154711477913,
+      "halstead": {
+        "bugs": 0.5417335046017625,
+        "volume": 1625.2005138052875,
+        "length": 230,
+        "vocabulary": 134
+      },
+      "function_count": 41,
+      "expression_count": 1948
+    },
+    {
+      "path": "webbed_duck/_templating/errors.py",
+      "raw": {
+        "loc": 7,
+        "lloc": 4,
+        "sloc": 2,
+        "comments": 0,
+        "multi": 0,
+        "blank": 3
+      },
+      "cyclomatic": {
+        "total": 1.0,
+        "average": 1.0,
+        "functions": [
+          {
+            "name": "TemplateApplicationError",
+            "lineno": 4,
+            "endline": 7,
+            "complexity": 1.0,
+            "kind": "class"
+          }
+        ]
+      },
+      "maintainability_index": 100.0,
+      "halstead": {
+        "bugs": 0.0,
+        "volume": 0,
+        "length": 0,
+        "vocabulary": 0
+      },
+      "function_count": 1,
+      "expression_count": 5
+    },
+    {
+      "path": "webbed_duck/_templating/formatters.py",
+      "raw": {
+        "loc": 168,
+        "lloc": 85,
+        "sloc": 118,
+        "comments": 0,
+        "multi": 0,
+        "blank": 43
+      },
+      "cyclomatic": {
+        "total": 27.0,
+        "average": 3.857142857142857,
+        "functions": [
+          {
+            "name": "merge_formats",
+            "lineno": 62,
+            "endline": 65,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "date_offset",
+            "lineno": 68,
+            "endline": 76,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_ensure_datetime",
+            "lineno": 79,
+            "endline": 82,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "format_date",
+            "lineno": 85,
+            "endline": 101,
+            "complexity": 6.0,
+            "kind": "function"
+          },
+          {
+            "name": "format_timestamp",
+            "lineno": 104,
+            "endline": 124,
+            "complexity": 6.0,
+            "kind": "function"
+          },
+          {
+            "name": "format_number",
+            "lineno": 128,
+            "endline": 149,
+            "complexity": 6.0,
+            "kind": "function"
+          },
+          {
+            "name": "stringify",
+            "lineno": 153,
+            "endline": 168,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 38.94643457463766,
+      "halstead": {
+        "bugs": 0.06730296890880645,
+        "volume": 201.90890672641936,
+        "length": 42,
+        "vocabulary": 28
+      },
+      "function_count": 7,
+      "expression_count": 416
+    },
+    {
+      "path": "webbed_duck/_templating/parameters.py",
+      "raw": {
+        "loc": 59,
+        "lloc": 38,
+        "sloc": 39,
+        "comments": 1,
+        "multi": 0,
+        "blank": 16
+      },
+      "cyclomatic": {
+        "total": 10.0,
+        "average": 2.0,
+        "functions": [
+          {
+            "name": "StringParameterWhitelist",
+            "lineno": 43,
+            "endline": 49,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_freeze_iterable",
+            "lineno": 53,
+            "endline": 59,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "ParameterWhitelist",
+            "lineno": 16,
+            "endline": 40,
+            "complexity": 3.0,
+            "kind": "class"
+          },
+          {
+            "name": "__post_init__",
+            "lineno": 23,
+            "endline": 29,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "resolve",
+            "lineno": 31,
+            "endline": 40,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 69.51496195937581,
+      "halstead": {
+        "bugs": 0.0015849625007211565,
+        "volume": 4.754887502163469,
+        "length": 3,
+        "vocabulary": 3
+      },
+      "function_count": 5,
+      "expression_count": 124
+    },
+    {
+      "path": "webbed_duck/_templating/renderer.py",
+      "raw": {
+        "loc": 160,
+        "lloc": 105,
+        "sloc": 133,
+        "comments": 4,
+        "multi": 0,
+        "blank": 25
+      },
+      "cyclomatic": {
+        "total": 47.0,
+        "average": 3.1333333333333333,
+        "functions": [
+          {
+            "name": "TemplateRenderer",
+            "lineno": 22,
+            "endline": 159,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 27,
+            "endline": 38,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "render",
+            "lineno": 41,
+            "endline": 47,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_evaluate_expression",
+            "lineno": 49,
+            "endline": 59,
+            "complexity": 6.0,
+            "kind": "function"
+          },
+          {
+            "name": "_resolve_path",
+            "lineno": 61,
+            "endline": 68,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_eval_ast",
+            "lineno": 70,
+            "endline": 88,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "_resolve_getattr",
+            "lineno": 90,
+            "endline": 99,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_resolve_getitem",
+            "lineno": 101,
+            "endline": 108,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_apply_modifier",
+            "lineno": 110,
+            "endline": 124,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "_handle_coalesce",
+            "lineno": 126,
+            "endline": 130,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_handle_date_offset",
+            "lineno": 132,
+            "endline": 135,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_handle_date_format",
+            "lineno": 137,
+            "endline": 141,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_handle_timestamp_format",
+            "lineno": 143,
+            "endline": 147,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_handle_number_format",
+            "lineno": 149,
+            "endline": 153,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_literal_eval",
+            "lineno": 155,
+            "endline": 159,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 45.62107347050665,
+      "halstead": {
+        "bugs": 0.04126466250649041,
+        "volume": 123.79398751947124,
+        "length": 27,
+        "vocabulary": 24
+      },
+      "function_count": 15,
+      "expression_count": 508
+    },
+    {
+      "path": "webbed_duck/_templating/state.py",
+      "raw": {
+        "loc": 157,
+        "lloc": 91,
+        "sloc": 122,
+        "comments": 2,
+        "multi": 0,
+        "blank": 31
+      },
+      "cyclomatic": {
+        "total": 27.0,
+        "average": 2.076923076923077,
+        "functions": [
+          {
+            "name": "ensure_mapping",
+            "lineno": 95,
+            "endline": 98,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "prepare_context",
+            "lineno": 101,
+            "endline": 144,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_resolve_string_whitelist",
+            "lineno": 148,
+            "endline": 157,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "StringNamespace",
+            "lineno": 28,
+            "endline": 52,
+            "complexity": 3.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 31,
+            "endline": 38,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_ensure_allowed",
+            "lineno": 41,
+            "endline": 44,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "__getitem__",
+            "lineno": 47,
+            "endline": 49,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "get",
+            "lineno": 51,
+            "endline": 52,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "PreparedContext",
+            "lineno": 56,
+            "endline": 63,
+            "complexity": 1.0,
+            "kind": "class"
+          },
+          {
+            "name": "RequestContextStore",
+            "lineno": 66,
+            "endline": 92,
+            "complexity": 2.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 71,
+            "endline": 84,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "get",
+            "lineno": 88,
+            "endline": 89,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "set",
+            "lineno": 91,
+            "endline": 92,
+            "complexity": 1.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 49.08069158281586,
+      "halstead": {
+        "bugs": 0.026409525009134644,
+        "volume": 79.22857502740393,
+        "length": 19,
+        "vocabulary": 18
+      },
+      "function_count": 13,
+      "expression_count": 397
+    },
+    {
+      "path": "webbed_duck/constants.py",
+      "raw": {
+        "loc": 37,
+        "lloc": 14,
+        "sloc": 13,
+        "comments": 0,
+        "multi": 10,
+        "blank": 12
+      },
+      "cyclomatic": {
+        "total": 3.0,
+        "average": 1.5,
+        "functions": [
+          {
+            "name": "set_request_context",
+            "lineno": 14,
+            "endline": 17,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "apply_constants",
+            "lineno": 20,
+            "endline": 37,
+            "complexity": 2.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 98.34370847441127,
+      "halstead": {
+        "bugs": 0.0015849625007211565,
+        "volume": 4.754887502163469,
+        "length": 3,
+        "vocabulary": 3
+      },
+      "function_count": 2,
+      "expression_count": 48
+    },
+    {
+      "path": "webbed_duck/server/__init__.py",
+      "raw": {
+        "loc": 5,
+        "lloc": 3,
+        "sloc": 2,
+        "comments": 0,
+        "multi": 0,
+        "blank": 2
+      },
+      "cyclomatic": {
+        "total": 0,
+        "average": 0.0,
+        "functions": []
+      },
+      "maintainability_index": 100.0,
+      "halstead": {
+        "bugs": 0.0,
+        "volume": 0,
+        "length": 0,
+        "vocabulary": 0
+      },
+      "function_count": 0,
+      "expression_count": 7
+    },
+    {
+      "path": "webbed_duck/server/cache.py",
+      "raw": {
+        "loc": 655,
+        "lloc": 402,
+        "sloc": 567,
+        "comments": 0,
+        "multi": 0,
+        "blank": 80
+      },
+      "cyclomatic": {
+        "total": 165.0,
+        "average": 3.3,
+        "functions": [
+          {
+            "name": "_utc_now",
+            "lineno": 23,
+            "endline": 24,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_decode_null",
+            "lineno": 27,
+            "endline": 32,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_stringify",
+            "lineno": 35,
+            "endline": 40,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_normalize_items",
+            "lineno": 43,
+            "endline": 51,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "_ensure_sequence",
+            "lineno": 55,
+            "endline": 60,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_encode_constant_value",
+            "lineno": 63,
+            "endline": 74,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_compute_digest",
+            "lineno": 77,
+            "endline": 87,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_ensure_arrow_table",
+            "lineno": 90,
+            "endline": 99,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "InvariantFilter",
+            "lineno": 103,
+            "endline": 192,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "__post_init__",
+            "lineno": 111,
+            "endline": 112,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "normalize",
+            "lineno": 114,
+            "endline": 127,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_normalize_candidate",
+            "lineno": 129,
+            "endline": 137,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "encode",
+            "lineno": 139,
+            "endline": 142,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "apply",
+            "lineno": 144,
+            "endline": 150,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_predicate_for",
+            "lineno": 152,
+            "endline": 167,
+            "complexity": 6.0,
+            "kind": "function"
+          },
+          {
+            "name": "_membership_predicate",
+            "lineno": 169,
+            "endline": 179,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_include_nulls",
+            "lineno": 181,
+            "endline": 192,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "CacheSettings",
+            "lineno": 196,
+            "endline": 212,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "__post_init__",
+            "lineno": 204,
+            "endline": 212,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "CacheKey",
+            "lineno": 219,
+            "endline": 274,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "from_parts",
+            "lineno": 233,
+            "endline": 261,
+            "complexity": 8.0,
+            "kind": "function"
+          },
+          {
+            "name": "parameter_values",
+            "lineno": 265,
+            "endline": 266,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "constant_values",
+            "lineno": 269,
+            "endline": 270,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "invariant_tokens",
+            "lineno": 273,
+            "endline": 274,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "CacheEntry",
+            "lineno": 278,
+            "endline": 286,
+            "complexity": 1.0,
+            "kind": "class"
+          },
+          {
+            "name": "CacheResult",
+            "lineno": 290,
+            "endline": 313,
+            "complexity": 3.0,
+            "kind": "class"
+          },
+          {
+            "name": "__post_init__",
+            "lineno": 303,
+            "endline": 307,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "to_pylist",
+            "lineno": 309,
+            "endline": 310,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "__getattr__",
+            "lineno": 312,
+            "endline": 313,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "CacheStorage",
+            "lineno": 316,
+            "endline": 458,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 319,
+            "endline": 321,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_entry_dir",
+            "lineno": 323,
+            "endline": 324,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "load_entry",
+            "lineno": 326,
+            "endline": 348,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "write_entry",
+            "lineno": 351,
+            "endline": 396,
+            "complexity": 7.0,
+            "kind": "function"
+          },
+          {
+            "name": "read_entry",
+            "lineno": 399,
+            "endline": 406,
+            "complexity": 4.0,
+            "kind": "function"
+          },
+          {
+            "name": "evict",
+            "lineno": 408,
+            "endline": 411,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "scan_entries",
+            "lineno": 413,
+            "endline": 422,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_entry_from_metadata",
+            "lineno": 425,
+            "endline": 458,
+            "complexity": 8.0,
+            "kind": "function"
+          },
+          {
+            "name": "Cache",
+            "lineno": 462,
+            "endline": 654,
+            "complexity": 4.0,
+            "kind": "class"
+          },
+          {
+            "name": "__init__",
+            "lineno": 465,
+            "endline": 477,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "fetch_or_populate",
+            "lineno": 479,
+            "endline": 524,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_apply_filters",
+            "lineno": 527,
+            "endline": 529,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
+            "name": "_apply_invariant_filters",
+            "lineno": 531,
+            "endline": 538,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_apply_constant_filters",
+            "lineno": 540,
+            "endline": 548,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_filter_by_column",
+            "lineno": 551,
+            "endline": 560,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_constant_predicate",
+            "lineno": 562,
+            "endline": 571,
+            "complexity": 3.0,
+            "kind": "function"
+          },
+          {
+            "name": "_build_result",
+            "lineno": 573,
+            "endline": 595,
+            "complexity": 2.0,
+            "kind": "function"
+          },
+          {
+            "name": "_find_superset_entry",
+            "lineno": 598,
+            "endline": 620,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_non_invariant_equal",
+            "lineno": 623,
+            "endline": 633,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_entry_is_superset",
+            "lineno": 635,
+            "endline": 654,
+            "complexity": 7.0,
+            "kind": "function"
+          }
+        ]
+      },
+      "maintainability_index": 3.4220008506986597,
+      "halstead": {
+        "bugs": 0.42518042873732326,
+        "volume": 1275.5412862119697,
+        "length": 185,
+        "vocabulary": 119
+      },
+      "function_count": 50,
+      "expression_count": 2002
+    }
+  ],
+  "totals": {
+    "non_space_sloc": 1655,
+    "function_count": 139,
+    "expression_count": 5698,
+    "cyclomatic_total": 453.0,
+    "cyclomatic_average": 3.258992805755396,
+    "maintainability_average": 64.34890696586078,
+    "halstead_bugs": 1.1102309397664019
+  },
+  "duplicates": [
+    {
+      "shape_id": "c16be311076a4f976347c7183968bc4702aa4459",
+      "occurrences": [
+        {
+          "path": "webbed_duck/_templating/renderer.py",
+          "name": "_handle_date_format",
+          "lineno": 137,
+          "endline": 141
+        },
+        {
+          "path": "webbed_duck/_templating/renderer.py",
+          "name": "_handle_timestamp_format",
+          "lineno": 143,
+          "endline": 147
+        },
+        {
+          "path": "webbed_duck/_templating/renderer.py",
+          "name": "_handle_number_format",
+          "lineno": 149,
+          "endline": 153
+        }
+      ],
+      "count": 3
+    },
+    {
+      "shape_id": "5449c74048457ed8397e77413bef42823ca1712e",
+      "occurrences": [
+        {
+          "path": "webbed_duck/_templating/binding.py",
+          "name": "_as_float",
+          "lineno": 605,
+          "endline": 611
+        },
+        {
+          "path": "webbed_duck/_templating/binding.py",
+          "name": "_as_int",
+          "lineno": 614,
+          "endline": 620
+        }
+      ],
+      "count": 2
+    },
+    {
+      "shape_id": "dfb824a61d0d6cae4c7fc1780c289654c016e373",
+      "occurrences": [
+        {
+          "path": "webbed_duck/server/cache.py",
+          "name": "parameter_values",
+          "lineno": 265,
+          "endline": 266
+        },
+        {
+          "path": "webbed_duck/server/cache.py",
+          "name": "constant_values",
+          "lineno": 269,
+          "endline": 270
+        }
+      ],
+      "count": 2
+    }
+  ]
+}

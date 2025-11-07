@@ -1,0 +1,31 @@
+Complexity Reduction Summary (Auto-Generated)
+────────────────────────────────────────────────────────────
+Files changed: 1
+Functions modified: 81
+Non-space SLOC: 1655 → 1650  (Δ -5)
+Function count: 139 → 138
+Expression count: 5698 → 5681
+
+Radon Cyclomatic Complexity:
+  Total:   453 → 446  (Δ -7)
+  Average: 3.26 → 3.23
+
+Maintainability Index (avg):
+  64.35 → 64.42
+
+Halstead Bug Estimate:
+  Overall: 1.11 → 1.07
+  Notable modules:
+    webbed_duck/_templating/binding.py: 0.54 → 0.50
+    scripts/generate_template_docs.py: 0.01 → 0.01
+    webbed_duck/__init__.py: 0 → 0
+    webbed_duck/_templating/__init__.py: 0 → 0
+    webbed_duck/_templating/errors.py: 0 → 0
+
+Generalized Refactor Patterns Applied:
+  - auto-populated
+  - auto-populated
+
+Validation:
+  - Tests passing: auto
+  - Behavioral diff: none observed (snapshot/contract tests unchanged)

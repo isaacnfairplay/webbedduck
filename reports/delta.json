@@ -1,0 +1,63 @@
+{
+  "before": {
+    "non_space_sloc": 1655,
+    "function_count": 139,
+    "expression_count": 5698,
+    "cyclomatic_total": 453.0,
+    "cyclomatic_average": 3.258992805755396,
+    "maintainability_average": 64.34890696586078,
+    "halstead_bugs": 1.1102309397664019
+  },
+  "after": {
+    "non_space_sloc": 1650,
+    "function_count": 138,
+    "expression_count": 5681,
+    "cyclomatic_total": 446.0,
+    "cyclomatic_average": 3.2318840579710146,
+    "maintainability_average": 64.41978585253919,
+    "halstead_bugs": 1.0662100697076335
+  },
+  "delta": {
+    "non_space_sloc": -5,
+    "function_count": -1,
+    "expression_count": -17,
+    "cyclomatic_total": -7.0,
+    "cyclomatic_average": -0.027108747784381215,
+    "maintainability_average": 0.07087888667841469,
+    "halstead_bugs": -0.04402087005876831
+  },
+  "files_changed": 1,
+  "functions_modified": 81,
+  "notable_modules": [
+    {
+      "path": "webbed_duck/_templating/binding.py",
+      "before": 0.5417335046017625,
+      "after": 0.4977126345429941,
+      "delta": -0.044020870058768424
+    },
+    {
+      "path": "scripts/generate_template_docs.py",
+      "before": 0.005169925001442312,
+      "after": 0.005169925001442312,
+      "delta": 0.0
+    },
+    {
+      "path": "webbed_duck/__init__.py",
+      "before": 0.0,
+      "after": 0.0,
+      "delta": 0.0
+    },
+    {
+      "path": "webbed_duck/_templating/__init__.py",
+      "before": 0.0,
+      "after": 0.0,
+      "delta": 0.0
+    },
+    {
+      "path": "webbed_duck/_templating/errors.py",
+      "before": 0.0,
+      "after": 0.0,
+      "delta": 0.0
+    }
+  ]
+}
