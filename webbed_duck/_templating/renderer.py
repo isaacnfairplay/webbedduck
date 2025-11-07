@@ -51,9 +51,7 @@ class TemplateRenderer:
             raise TemplateApplicationError("Empty template expression")
 
         value = self._resolve_path(segments[0])
-        for modifier in segments[1:]:
-            if not modifier:
-                continue
+        for modifier in (segment for segment in segments[1:] if segment):
             value = self._apply_modifier(value, modifier)
         return value
 
