@@ -1,0 +1,70 @@
+name: Complexity Metrics
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install analysis tools
+        run: |
+          pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+            radon xenon lizard wily flake8-bugbear
+
+      - name: Determine base revision
+        id: base
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          echo "base_commit=$(git merge-base HEAD origin/${{ github.base_ref }})" >> "$GITHUB_OUTPUT"
+
+      - name: Collect base metrics
+        run: |
+          git worktree add --force base_rev "${{ steps.base.outputs.base_commit }}"
+          python tools/complexity_report.py collect --root base_rev --label base --output-dir reports
+
+      - name: Collect head metrics
+        run: python tools/complexity_report.py collect --root . --label head --output-dir reports
+
+      - name: Compare metrics
+        run: |
+          python tools/complexity_report.py compare \
+            --before reports/base/metrics.json \
+            --after reports/head/metrics.json \
+            --output reports/delta.json \
+            --summary-output reports/summary.txt
+
+      - name: Upload complexity reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-reports
+          path: reports
+
+      - name: Comment complexity summary
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('reports/summary.txt', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary,
+            });
+
+      - name: Clean up base worktree
+        if: always()
+        run: git worktree remove --force base_rev

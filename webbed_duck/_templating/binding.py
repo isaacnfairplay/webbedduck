@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import suppress
 import datetime as _dt
 import operator
 import re
@@ -410,27 +411,26 @@ _NUMERIC_CONVERTERS: Mapping[str, tuple[Callable[[Any], Any], str]] = {
 }
 
 
-def _prepare_numeric_bounds(
-    bounds: Mapping[str, Any],
-    converter: Callable[[Any], float | int | None],
-) -> dict[str, tuple[Any | None, float | int | None]]:
-    return {
-        label: (raw, converter(raw) if raw is not None else None)
-        for label in ("min", "max")
-        for raw in (bounds.get(label),)
-    }
-
-
-def _bound_errors(
+def _coerce_guard_values(
     name: str,
     guard_key: str,
-    data: Mapping[str, tuple[Any | None, float | int | None]],
-) -> list[str]:
-    return [
-        f"Parameter '{name}' {guard_key} guard '{label}' must be numeric"
-        for label, (raw, coerced) in data.items()
-        if raw is not None and coerced is None
-    ]
+    bounds: Mapping[str, Any],
+    converter: Callable[[Any], float | int | None],
+) -> tuple[dict[str, tuple[Any, float | int]], list[str]]:
+    numeric: dict[str, tuple[Any, float | int]] = {}
+    errors: list[str] = []
+    for label in ("min", "max"):
+        raw = bounds.get(label)
+        if raw is None:
+            continue
+        coerced = converter(raw)
+        if coerced is None:
+            errors.append(
+                f"Parameter '{name}' {guard_key} guard '{label}' must be numeric"
+            )
+        else:
+            numeric[label] = (raw, coerced)
+    return numeric, errors
 
 
 def _validate_length_guard(
@@ -442,18 +442,20 @@ def _validate_length_guard(
     bounds, mapping_errors = _guard_mapping(guards, "length", name)
     if mapping_errors or bounds is None:
         return mapping_errors
+
     try:
         length = len(value)  # type: ignore[arg-type]
     except TypeError:
         return [f"Parameter '{name}' length guard requires a sized value"]
-    data = _prepare_numeric_bounds(bounds, _as_int)
-    errors = _bound_errors(name, "length", data)
+
+    numeric, errors = _coerce_guard_values(name, "length", bounds, _as_int)
     if errors:
         return errors
+
     return [
         f"Parameter '{name}' length must be {_BOUND_CHECKS[label][1]} {raw}"
-        for label, (raw, coerced) in data.items()
-        if coerced is not None and _BOUND_CHECKS[label][0](length, coerced)
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](length, coerced)
     ]
 
 
@@ -466,27 +468,28 @@ def _validate_range_guard(
     bounds, mapping_errors = _guard_mapping(guards, "range", name)
     if mapping_errors or bounds is None:
         return mapping_errors
-    data = _prepare_numeric_bounds(bounds, _as_float)
-    if not any(raw is not None for raw, _ in data.values()):
+
+    if not any(bounds.get(label) is not None for label in ("min", "max")):
         return [f"Parameter '{name}' range guard requires 'min' or 'max'"]
+
     numeric_value = _as_float(value)
     if numeric_value is None:
         return [f"Parameter '{name}' must be numeric to apply range guard"]
 
-    errors = _bound_errors(name, "range", data)
+    numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
     if errors:
         return errors
 
     active = [
         (label, raw)
-        for label, (raw, coerced) in data.items()
-        if coerced is not None and _BOUND_CHECKS[label][0](numeric_value, coerced)
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](numeric_value, coerced)
     ]
     if not active:
         return []
-    if all(data[label][1] is not None for label in ("min", "max")):
-        min_raw, _ = data["min"]
-        max_raw, _ = data["max"]
+    if {"min", "max"}.issubset(numeric):
+        min_raw, _ = numeric["min"]
+        max_raw, _ = numeric["max"]
         return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
     label, raw = active[0]
     return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
@@ -558,15 +561,13 @@ def _validate_compare_guard(
     if mapping_errors or compare is None:
         return mapping_errors
 
-    match compare:
-        case {"parameter": str() as target_name, **rest}:
-            operator_name = rest.get("operator") or "eq"
-            custom_message = rest.get("message")
-        case _:
-            return [
-                f"Parameter '{name}' compare guard requires a parameter name"
-            ]
+    target_name = compare.get("parameter")
+    if not isinstance(target_name, str):
+        return [
+            f"Parameter '{name}' compare guard requires a parameter name"
+        ]
 
+    operator_name = compare.get("operator") or "eq"
     if not isinstance(operator_name, str):
         return [
             f"Parameter '{name}' compare guard operator must be a string"
@@ -584,22 +585,20 @@ def _validate_compare_guard(
             f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
         ]
 
-    try:
+    with suppress(TypeError):
         if comparator.compare(value, other.value):
             return []
-    except TypeError:
-        return [
-            f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
-        ]
 
-    message = (
-        custom_message
-        if isinstance(custom_message, str)
-        else comparator.message(name, target_name)
-        if custom_message is None
-        else str(custom_message)
-    )
-    return [message]
+        message = compare.get("message")
+        if isinstance(message, str):
+            return [message]
+        if message is None:
+            return [comparator.message(name, target_name)]
+        return [str(message)]
+
+    return [
+        f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
+    ]
 
 
 def _as_float(value: Any) -> float | None:
