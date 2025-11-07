@@ -5,8 +5,10 @@ from __future__ import annotations
 import copy
 from contextlib import suppress
 import datetime as _dt
+import os
 import operator
 import re
+from pathlib import PurePosixPath, PureWindowsPath
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping
 
@@ -344,6 +346,7 @@ def _run_guards(
         _validate_regex_guard,
         _validate_length_guard,
         _validate_range_guard,
+        _validate_path_guard,
         _validate_datetime_window_guard,
         _validate_compare_guard,
     )
@@ -493,6 +496,90 @@ def _validate_range_guard(
         return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
     label, raw = active[0]
     return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+
+
+def _validate_path_guard(
+    name: str,
+    value: Any,
+    guards: Mapping[str, Any],
+    _resolved: Mapping[str, "ResolvedParameter"],
+) -> list[str]:
+    mapping, mapping_errors = _guard_mapping(guards, "path", name)
+    if mapping_errors or mapping is None:
+        return mapping_errors
+
+    options = _resolve_path_guard_options(name, mapping)
+    if isinstance(options, list):
+        return options
+
+    text_value = _coerce_path_guard_value(name, value)
+    if isinstance(text_value, list):
+        return text_value
+
+    return _collect_path_guard_errors(name, text_value, options)
+
+
+def _resolve_path_guard_options(name: str, mapping: Mapping[str, Any]) -> dict[str, bool] | list[str]:
+    allowed_keys = {"allow_parent", "allow_absolute", "allow_backslash"}
+    unknown = set(mapping) - allowed_keys
+    if unknown:
+        ordered = ", ".join(sorted(unknown))
+        return [
+            f"Parameter '{name}' path guard received unsupported options: {ordered}"
+        ]
+
+    flags: dict[str, bool] = {}
+    for key in allowed_keys:
+        raw = mapping.get(key, False)
+        if isinstance(raw, bool):
+            flags[key] = raw
+        else:
+            return [
+                f"Parameter '{name}' path guard option '{key}' must be boolean"
+            ]
+    return flags
+
+
+def _coerce_path_guard_value(name: str, value: Any) -> str | list[str]:
+    if isinstance(value, (str, os.PathLike)):
+        try:
+            return os.fspath(value)
+        except TypeError:
+            return str(value)
+    return [
+        f"Parameter '{name}' path guard requires a string or path-like value"
+    ]
+
+
+def _collect_path_guard_errors(
+    name: str,
+    text_value: str,
+    flags: Mapping[str, bool],
+) -> list[str]:
+    normalized = text_value.replace("\\", "/")
+
+    errors: list[str] = []
+    if not flags.get("allow_backslash", False) and "\\" in text_value:
+        errors.append(
+            f"Parameter '{name}' path guard forbids backslashes"
+        )
+
+    parts = [segment for segment in normalized.split("/") if segment not in ("", ".")]
+    if not flags.get("allow_parent", False) and ".." in parts:
+        errors.append(
+            f"Parameter '{name}' path guard forbids parent segments"
+        )
+
+    is_absolute = (
+        PurePosixPath(normalized).is_absolute()
+        or PureWindowsPath(text_value).is_absolute()
+    )
+    if not flags.get("allow_absolute", False) and is_absolute:
+        errors.append(
+            f"Parameter '{name}' path guard forbids absolute paths"
+        )
+
+    return errors
 
 
 def _validate_datetime_window_guard(
