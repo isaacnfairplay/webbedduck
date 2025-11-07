@@ -605,10 +605,20 @@ class Cache:
             name: set(tokens)
             for name, tokens in key.invariant_tokens.items()
         }
-        for entry in candidates:
-            if self._entry_is_superset(entry, key, requested_params, requested_constants, requested_invariants):
-                return entry
-        return None
+        return next(
+            (
+                entry
+                for entry in candidates
+                if self._entry_is_superset(
+                    entry,
+                    key,
+                    requested_params,
+                    requested_constants,
+                    requested_invariants,
+                )
+            ),
+            None,
+        )
 
     def _non_invariant_equal(
         self, existing_constants: Mapping[str, Any], requested_constants: Mapping[str, Any]
