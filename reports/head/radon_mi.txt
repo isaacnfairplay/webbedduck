@@ -9,4 +9,4 @@ webbed_duck/_templating/renderer.py: 45.62
 webbed_duck/_templating/state.py: 49.08
 webbed_duck/constants.py: 98.34
 webbed_duck/server/__init__.py: 100.00
-webbed_duck/server/cache.py: 3.42
+webbed_duck/server/cache.py: 4.03

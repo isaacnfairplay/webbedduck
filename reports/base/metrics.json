@@ -1,6 +1,6 @@
 {
-  "generated_at": "2025-11-07T18:46:37.145397+00:00",
-  "root": "/tmp/base_metrics",
+  "generated_at": "2025-11-07T19:28:00.656646+00:00",
+  "root": "/tmp/webbedduck-base",
   "files": [
     {
       "path": "scripts/generate_template_docs.py",
@@ -116,315 +116,308 @@
     {
       "path": "webbed_duck/_templating/binding.py",
       "raw": {
-        "loc": 686,
-        "lloc": 395,
-        "sloc": 560,
+        "loc": 685,
+        "lloc": 405,
+        "sloc": 555,
         "comments": 4,
         "multi": 0,
-        "blank": 117
+        "blank": 121
       },
       "cyclomatic": {
-        "total": 159.0,
-        "average": 3.8780487804878048,
+        "total": 152.0,
+        "average": 3.8,
         "functions": [
           {
             "name": "_collect_unknown_parameters",
-            "lineno": 272,
-            "endline": 287,
+            "lineno": 273,
+            "endline": 288,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_coerce_value",
-            "lineno": 290,
-            "endline": 313,
+            "lineno": 291,
+            "endline": 314,
             "complexity": 7.0,
             "kind": "function"
           },
           {
             "name": "_coerce_boolean",
-            "lineno": 316,
-            "endline": 329,
+            "lineno": 317,
+            "endline": 330,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_run_guards",
-            "lineno": 332,
-            "endline": 352,
+            "lineno": 333,
+            "endline": 353,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "_validate_choices_guard",
-            "lineno": 356,
-            "endline": 370,
+            "lineno": 357,
+            "endline": 371,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_validate_regex_guard",
-            "lineno": 373,
-            "endline": 388,
+            "lineno": 374,
+            "endline": 389,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_guard_mapping",
-            "lineno": 391,
-            "endline": 399,
+            "lineno": 392,
+            "endline": 400,
             "complexity": 3.0,
             "kind": "function"
           },
           {
-            "name": "_prepare_numeric_bounds",
-            "lineno": 413,
-            "endline": 420,
-            "complexity": 4.0,
-            "kind": "function"
-          },
-          {
-            "name": "_bound_errors",
-            "lineno": 424,
-            "endline": 432,
+            "name": "_coerce_guard_values",
+            "lineno": 414,
+            "endline": 433,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "_validate_length_guard",
             "lineno": 436,
-            "endline": 456,
-            "complexity": 8.0,
+            "endline": 458,
+            "complexity": 7.0,
             "kind": "function"
           },
           {
             "name": "_validate_range_guard",
-            "lineno": 460,
-            "endline": 492,
-            "complexity": 13.0,
+            "lineno": 462,
+            "endline": 495,
+            "complexity": 11.0,
             "kind": "function"
           },
           {
             "name": "_validate_datetime_window_guard",
-            "lineno": 495,
-            "endline": 547,
+            "lineno": 498,
+            "endline": 550,
             "complexity": 8.0,
             "kind": "function"
           },
           {
             "name": "_validate_compare_guard",
-            "lineno": 551,
-            "endline": 602,
+            "lineno": 554,
+            "endline": 600,
             "complexity": 11.0,
             "kind": "function"
           },
           {
             "name": "_as_float",
-            "lineno": 605,
-            "endline": 611,
+            "lineno": 604,
+            "endline": 610,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_as_int",
-            "lineno": 614,
-            "endline": 620,
+            "lineno": 613,
+            "endline": 619,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_parse_datetime_for_guard",
-            "lineno": 623,
-            "endline": 643,
+            "lineno": 622,
+            "endline": 642,
             "complexity": 7.0,
             "kind": "function"
           },
           {
             "name": "_format_datetime_boundary",
-            "lineno": 647,
-            "endline": 650,
+            "lineno": 646,
+            "endline": 649,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "_datetimes_mixed_timezone_awareness",
-            "lineno": 653,
-            "endline": 658,
+            "lineno": 652,
+            "endline": 657,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "ParameterBindingError",
-            "lineno": 26,
-            "endline": 29,
+            "lineno": 27,
+            "endline": 30,
             "complexity": 1.0,
             "kind": "class"
           },
           {
             "name": "ParameterSpec",
-            "lineno": 33,
-            "endline": 71,
+            "lineno": 34,
+            "endline": 72,
             "complexity": 5.0,
             "kind": "class"
           },
           {
             "name": "from_manifest",
-            "lineno": 45,
-            "endline": 71,
+            "lineno": 46,
+            "endline": 72,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "ValidationContext",
-            "lineno": 76,
-            "endline": 100,
+            "lineno": 77,
+            "endline": 101,
             "complexity": 4.0,
             "kind": "class"
           },
           {
             "name": "from_manifest",
-            "lineno": 83,
-            "endline": 97,
+            "lineno": 84,
+            "endline": 98,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "resolve",
-            "lineno": 99,
-            "endline": 100,
+            "lineno": 100,
+            "endline": 101,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "ResolvedParameter",
-            "lineno": 104,
-            "endline": 112,
+            "lineno": 105,
+            "endline": 113,
             "complexity": 1.0,
             "kind": "class"
           },
           {
             "name": "ParameterContext",
-            "lineno": 115,
-            "endline": 269,
+            "lineno": 116,
+            "endline": 270,
             "complexity": 3.0,
             "kind": "class"
           },
           {
             "name": "__init__",
-            "lineno": 118,
-            "endline": 129,
+            "lineno": 119,
+            "endline": 130,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "__getitem__",
-            "lineno": 131,
-            "endline": 132,
+            "lineno": 132,
+            "endline": 133,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "__iter__",
-            "lineno": 134,
-            "endline": 135,
+            "lineno": 135,
+            "endline": 136,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "__len__",
-            "lineno": 137,
-            "endline": 138,
+            "lineno": 138,
+            "endline": 139,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "configuration",
-            "lineno": 141,
-            "endline": 144,
+            "lineno": 142,
+            "endline": 145,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "attach_configuration",
-            "lineno": 146,
-            "endline": 153,
+            "lineno": 147,
+            "endline": 154,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "with_configuration",
-            "lineno": 155,
-            "endline": 159,
+            "lineno": 156,
+            "endline": 160,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "from_manifest",
-            "lineno": 162,
-            "endline": 226,
+            "lineno": 163,
+            "endline": 227,
             "complexity": 9.0,
             "kind": "function"
           },
           {
             "name": "for_template",
-            "lineno": 228,
-            "endline": 255,
+            "lineno": 229,
+            "endline": 256,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "for_binding",
-            "lineno": 257,
-            "endline": 264,
+            "lineno": 258,
+            "endline": 265,
             "complexity": 7.0,
             "kind": "function"
           },
           {
             "name": "template_consumed",
-            "lineno": 268,
-            "endline": 269,
+            "lineno": 269,
+            "endline": 270,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "_CompareOperator",
-            "lineno": 661,
-            "endline": 675,
+            "lineno": 660,
+            "endline": 674,
             "complexity": 2.0,
             "kind": "class"
           },
           {
             "name": "__init__",
-            "lineno": 664,
-            "endline": 666,
+            "lineno": 663,
+            "endline": 665,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "compare",
-            "lineno": 668,
-            "endline": 669,
+            "lineno": 667,
+            "endline": 668,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "message",
-            "lineno": 671,
-            "endline": 675,
+            "lineno": 670,
+            "endline": 674,
             "complexity": 2.0,
             "kind": "function"
           }
         ]
       },
-      "maintainability_index": 9.022154711477913,
+      "maintainability_index": 9.872701351618888,
       "halstead": {
-        "bugs": 0.5417335046017625,
-        "volume": 1625.2005138052875,
-        "length": 230,
-        "vocabulary": 134
+        "bugs": 0.4977126345429941,
+        "volume": 1493.1379036289823,
+        "length": 214,
+        "vocabulary": 126
       },
-      "function_count": 41,
-      "expression_count": 1948
+      "function_count": 40,
+      "expression_count": 1931
     },
     {
       "path": "webbed_duck/_templating/errors.py",
@@ -1286,13 +1279,13 @@
     }
   ],
   "totals": {
-    "non_space_sloc": 1655,
-    "function_count": 139,
-    "expression_count": 5698,
-    "cyclomatic_total": 453.0,
-    "cyclomatic_average": 3.258992805755396,
-    "maintainability_average": 64.34890696586078,
-    "halstead_bugs": 1.1102309397664019
+    "non_space_sloc": 1650,
+    "function_count": 138,
+    "expression_count": 5681,
+    "cyclomatic_total": 446.0,
+    "cyclomatic_average": 3.2318840579710146,
+    "maintainability_average": 64.41978585253919,
+    "halstead_bugs": 1.0662100697076335
   },
   "duplicates": [
     {
@@ -1325,14 +1318,14 @@
         {
           "path": "webbed_duck/_templating/binding.py",
           "name": "_as_float",
-          "lineno": 605,
-          "endline": 611
+          "lineno": 604,
+          "endline": 610
         },
         {
           "path": "webbed_duck/_templating/binding.py",
           "name": "_as_int",
-          "lineno": 614,
-          "endline": 620
+          "lineno": 613,
+          "endline": 619
         }
       ],
       "count": 2
