@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar, Mapping
+from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -50,6 +50,14 @@ def _normalize_items(mapping: Mapping[str, Any] | None) -> tuple[tuple[str, str]
     return tuple(normalized)
 
 
+def _ensure_sequence(value: Any) -> Sequence[Any]:
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple, set)):
+        return tuple(value)
+    return (value,)
+
+
 def _compute_digest(route_slug: str, parameters: tuple[tuple[str, str], ...], constants: tuple[tuple[str, str], ...]) -> str:
     payload = json.dumps(
         {
@@ -75,37 +83,79 @@ def _ensure_arrow_table(result: Any) -> pa.Table:
     raise TypeError("Cache runner must return a pyarrow.Table or DuckDB relation")
 
 
-def _apply_invariants(table: pa.Table, constants: Mapping[str, Any]) -> pa.Table:
-    if not constants:
-        return table
-    mask: pa.ChunkedArray | None = None
-    for column, target in constants.items():
-        if column not in table.column_names:
-            continue
-        column_data = table[column]
-        if target is None:
-            predicate = pc.is_null(column_data)
+@dataclass(frozen=True)
+class InvariantFilter:
+    """Normalisation and predicate configuration for invariant constants."""
+
+    key: str
+    column: str | None = None
+    separator: str = "|"
+    case_insensitive: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "column", self.column or self.key)
+
+    def normalize(self, value: Any) -> tuple[str, ...]:
+        if value is None:
+            return (NULL_SENTINEL,)
+        tokens: list[str] = []
+        if isinstance(value, str):
+            candidates: Iterable[Any] = value.split(self.separator)
         else:
-            try:
-                scalar = pa.scalar(target, type=column_data.type)
-            except (pa.ArrowTypeError, pa.ArrowInvalid):
-                scalar = pa.scalar(target)
-            predicate = pc.equal(column_data, scalar)
-        mask = predicate if mask is None else pc.and_(mask, predicate)
-    if mask is None:
-        return table
-    if isinstance(mask, pa.ChunkedArray):
-        mask = mask.combine_chunks()
-    return table.filter(mask)
+            candidates = _ensure_sequence(value)
+        for token in candidates:
+            if token is None:
+                tokens.append(NULL_SENTINEL)
+                continue
+            string_token = str(token).strip()
+            if not string_token:
+                continue
+            normalized = string_token.lower() if self.case_insensitive else string_token
+            tokens.append(normalized)
+        if not tokens:
+            return tuple()
+        deduplicated = list(dict.fromkeys(tokens))
+        return tuple(sorted(deduplicated))
+
+    def encode(self, tokens: tuple[str, ...]) -> str:
+        if not tokens:
+            return ""
+        return self.separator.join(tokens)
+
+    def apply(self, table: pa.Table, tokens: tuple[str, ...]) -> pa.Table:
+        if not tokens:
+            return table
+        column_name = self.column or self.key
+        if column_name not in table.column_names:
+            return table
+        column_data = table[column_name]
+        include_null = NULL_SENTINEL in tokens
+        compare_tokens = tuple(token for token in tokens if token != NULL_SENTINEL)
+        column_for_compare = column_data
+        if self.case_insensitive and pa.types.is_string(column_data.type):
+            column_for_compare = pc.utf8_lower(column_data)
+        predicate: pa.Array | pa.ChunkedArray | None = None
+        if compare_tokens:
+            token_array = pa.array(compare_tokens, type=pa.string())
+            predicate = pc.is_in(column_for_compare, value_set=token_array)
+        if include_null:
+            null_predicate = pc.is_null(column_data)
+            predicate = null_predicate if predicate is None else pc.or_(predicate, null_predicate)
+        if predicate is None:
+            return table
+        if isinstance(predicate, pa.ChunkedArray):
+            predicate = predicate.combine_chunks()
+        return table.filter(predicate)
 
 
 @dataclass(frozen=True)
-class CacheConfig:
-    """Configuration for cache layout and freshness."""
+class CacheSettings:
+    """Cache behaviour configuration, including invariant filter metadata."""
 
     storage_root: Path = Path(".cache")
     ttl: timedelta = timedelta(minutes=10)
     page_size: int = 500
+    invariants: Mapping[str, InvariantFilter] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "storage_root", Path(self.storage_root))
@@ -115,6 +165,10 @@ class CacheConfig:
         if self.ttl <= timedelta(0):
             msg = "ttl must be positive"
             raise ValueError(msg)
+        object.__setattr__(self, "invariants", MappingProxyType(dict(self.invariants)))
+
+
+CacheConfig = CacheSettings
 
 
 @dataclass(frozen=True)
@@ -129,6 +183,7 @@ class CacheKey:
     digest: str
     _raw_parameters: Mapping[str, Any] = field(repr=False)
     _raw_constants: Mapping[str, Any] = field(repr=False)
+    _invariant_tokens: Mapping[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_parts(
@@ -137,19 +192,34 @@ class CacheKey:
         *,
         parameters: Mapping[str, Any] | None = None,
         constants: Mapping[str, Any] | None = None,
+        invariant_filters: Mapping[str, InvariantFilter] | None = None,
     ) -> "CacheKey":
         params_copy = {str(key): _decode_null(value) for key, value in (parameters or {}).items()}
         const_copy = {str(key): _decode_null(value) for key, value in (constants or {}).items()}
         normalized_params = _normalize_items(params_copy)
-        normalized_constants = _normalize_items(const_copy)
-        digest = _compute_digest(route_slug, normalized_params, normalized_constants)
+        filters = invariant_filters or {}
+        normalized_constants: list[tuple[str, str]] = []
+        invariant_tokens: dict[str, tuple[str, ...]] = {}
+        for key in sorted(const_copy.keys()):
+            value = const_copy[key]
+            filter_config = filters.get(key)
+            if filter_config is not None:
+                tokens = filter_config.normalize(value)
+                invariant_tokens[key] = tokens
+                encoded_value = filter_config.encode(tokens)
+            else:
+                encoded_value = NULL_SENTINEL if value is None else _stringify(value)
+            normalized_constants.append((key, encoded_value))
+        normalized_constants_tuple = tuple(normalized_constants)
+        digest = _compute_digest(route_slug, normalized_params, normalized_constants_tuple)
         return cls(
             route_slug=route_slug,
             parameters=normalized_params,
-            constants=normalized_constants,
+            constants=normalized_constants_tuple,
             digest=digest,
             _raw_parameters=MappingProxyType(params_copy),
             _raw_constants=MappingProxyType(const_copy),
+            _invariant_tokens=MappingProxyType({k: tuple(v) for k, v in invariant_tokens.items()}),
         )
 
     @property
@@ -159,6 +229,10 @@ class CacheKey:
     @property
     def constant_values(self) -> Mapping[str, Any]:
         return self._raw_constants
+
+    @property
+    def invariant_tokens(self) -> Mapping[str, tuple[str, ...]]:
+        return self._invariant_tokens
 
 
 @dataclass(frozen=True)
@@ -170,6 +244,7 @@ class CacheEntry:
     created_at: datetime
     expires_at: datetime
     row_count: int
+    invariants: Mapping[str, tuple[str, ...]]
 
 
 class CacheStorage:
@@ -194,12 +269,17 @@ class CacheStorage:
         if now >= expires_at:
             self.evict(key)
             return None
+        invariants = {
+            str(name): tuple(tokens)
+            for name, tokens in data.get("invariants", {}).items()
+        }
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
             row_count=data["row_count"],
+            invariants=MappingProxyType(invariants),
         )
 
     def write_entry(
@@ -210,6 +290,7 @@ class CacheStorage:
         created_at: datetime,
         ttl: timedelta,
         page_size: int,
+        invariants: Mapping[str, tuple[str, ...]] | None = None,
     ) -> CacheEntry:
         entry_dir = self._entry_dir(key)
         if entry_dir.exists():
@@ -223,10 +304,20 @@ class CacheStorage:
                 page_table = pa.Table.from_batches([batch])
                 pq.write_table(page_table, entry_dir / f"page-{index:05d}.parquet")
         metadata_path = entry_dir / "metadata.json"
+        invariant_payload = {
+            name: list(tokens)
+            for name, tokens in (invariants or {}).items()
+        }
         metadata = {
             "created_at": created_at.isoformat(),
             "ttl_seconds": ttl.total_seconds(),
             "row_count": table.num_rows,
+            "route_slug": key.route_slug,
+            "parameters": list(key.parameters),
+            "constants": list(key.constants),
+            "raw_parameters": dict(key.parameter_values),
+            "raw_constants": dict(key.constant_values),
+            "invariants": invariant_payload,
         }
         metadata_path.write_text(json.dumps(metadata, sort_keys=True))
         expires_at = created_at + ttl
@@ -236,6 +327,7 @@ class CacheStorage:
             created_at=created_at,
             expires_at=expires_at,
             row_count=table.num_rows,
+            invariants=MappingProxyType({name: tuple(tokens) for name, tokens in invariant_payload.items()}),
         )
 
     def read_entry(self, entry: CacheEntry) -> pa.Table:
@@ -251,6 +343,46 @@ class CacheStorage:
         entry_dir = self._entry_dir(key)
         if entry_dir.exists():
             shutil.rmtree(entry_dir)
+
+    def scan_entries(self, *, route_slug: str, now: datetime) -> list[CacheEntry]:
+        entries: list[CacheEntry] = []
+        for metadata_path in self._root.glob("*/metadata.json"):
+            entry_dir = metadata_path.parent
+            data = json.loads(metadata_path.read_text())
+            if data.get("route_slug") != route_slug:
+                continue
+            created_at = datetime.fromisoformat(data["created_at"])
+            ttl_seconds = data["ttl_seconds"]
+            expires_at = created_at + timedelta(seconds=ttl_seconds)
+            if now >= expires_at:
+                shutil.rmtree(entry_dir)
+                continue
+            raw_params = data.get("raw_parameters", {})
+            raw_consts = data.get("raw_constants", {})
+            invariants = {
+                str(name): tuple(tokens)
+                for name, tokens in data.get("invariants", {}).items()
+            }
+            key = CacheKey(
+                route_slug=data["route_slug"],
+                parameters=tuple(tuple(item) for item in data.get("parameters", [])),
+                constants=tuple(tuple(item) for item in data.get("constants", [])),
+                digest=entry_dir.name,
+                _raw_parameters=MappingProxyType({str(k): v for k, v in raw_params.items()}),
+                _raw_constants=MappingProxyType({str(k): v for k, v in raw_consts.items()}),
+                _invariant_tokens=MappingProxyType(invariants),
+            )
+            entries.append(
+                CacheEntry(
+                    key=key,
+                    path=entry_dir,
+                    created_at=created_at,
+                    expires_at=expires_at,
+                    row_count=data.get("row_count", 0),
+                    invariants=key.invariant_tokens,
+                )
+            )
+        return entries
 
 
 class Cache:
@@ -268,24 +400,93 @@ class Cache:
         self._run_query = run_query
         self._clock = clock or _utc_now
         self._storage = storage or CacheStorage(config.storage_root)
+        self._invariants = dict(config.invariants)
 
     def fetch_or_populate(self, key: CacheKey) -> pa.Table:
         now = self._clock()
         entry = self._storage.load_entry(key, now)
         if entry is not None:
             table = self._storage.read_entry(entry)
-            return _apply_invariants(table, key.constant_values)
+            return self._apply_filters(table, key)
+
+        superset_entry = self._find_superset_entry(key, now)
+        if superset_entry is not None:
+            table = self._storage.read_entry(superset_entry)
+            return self._apply_filters(table, key)
 
         raw_table = _ensure_arrow_table(
             self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
         )
-        filtered = _apply_invariants(raw_table, key.constant_values)
+        filtered = self._apply_filters(raw_table, key)
         entry = self._storage.write_entry(
             key,
             filtered,
             created_at=now,
             ttl=self._config.ttl,
             page_size=self._config.page_size,
+            invariants=key.invariant_tokens,
         )
         stored = self._storage.read_entry(entry)
-        return _apply_invariants(stored, key.constant_values)
+        return self._apply_filters(stored, key)
+
+    def _apply_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
+        filtered = table
+        for name, tokens in key.invariant_tokens.items():
+            filter_config = self._invariants.get(name)
+            if filter_config is None:
+                continue
+            filtered = filter_config.apply(filtered, tokens)
+        for column, target in key.constant_values.items():
+            if column in self._invariants:
+                continue
+            if column not in filtered.column_names:
+                continue
+            column_data = filtered[column]
+            if target is None:
+                predicate = pc.is_null(column_data)
+            else:
+                try:
+                    scalar = pa.scalar(target, type=column_data.type)
+                except (pa.ArrowTypeError, pa.ArrowInvalid):
+                    scalar = pa.scalar(target)
+                predicate = pc.equal(column_data, scalar)
+            if isinstance(predicate, pa.ChunkedArray):
+                predicate = predicate.combine_chunks()
+            filtered = filtered.filter(predicate)
+        return filtered
+
+    def _find_superset_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
+        if not key.invariant_tokens:
+            return None
+        candidates = self._storage.scan_entries(route_slug=key.route_slug, now=now)
+        requested_params = dict(key.parameter_values)
+        requested_constants = dict(key.constant_values)
+        requested_invariants = {
+            name: set(tokens)
+            for name, tokens in key.invariant_tokens.items()
+        }
+        for entry in candidates:
+            if entry.key.digest == key.digest:
+                continue
+            if dict(entry.key.parameter_values) != requested_params:
+                continue
+            if not self._non_invariant_equal(entry.key.constant_values, requested_constants):
+                continue
+            if set(entry.invariants.keys()) != set(requested_invariants.keys()):
+                continue
+            if not all(requested_invariants[name].issubset(set(entry.invariants[name])) for name in requested_invariants):
+                continue
+            return entry
+        return None
+
+    def _non_invariant_equal(
+        self, existing_constants: Mapping[str, Any], requested_constants: Mapping[str, Any]
+    ) -> bool:
+        invariant_names = set(self._invariants.keys())
+        existing_filtered = {
+            key: value for key, value in existing_constants.items() if key not in invariant_names
+        }
+        requested_filtered = {
+            key: value for key, value in requested_constants.items() if key not in invariant_names
+        }
+        return existing_filtered == requested_filtered

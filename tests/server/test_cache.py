@@ -12,7 +12,7 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 pa = pytest.importorskip("pyarrow")
 
-from webbed_duck.server.cache import Cache, CacheConfig, CacheKey
+from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, InvariantFilter
 
 
 class _Clock:
@@ -126,7 +126,15 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
 
 def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> None:
     clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
-    config = CacheConfig(storage_root=tmp_cache_dir, ttl=_dt.timedelta(minutes=5), page_size=10)
+    config = CacheConfig(
+        storage_root=tmp_cache_dir,
+        ttl=_dt.timedelta(minutes=5),
+        page_size=10,
+        invariants={
+            "segment": InvariantFilter("segment"),
+            "channel": InvariantFilter("channel"),
+        },
+    )
 
     rows = [
         ("email", None, None),
@@ -149,6 +157,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
         "reports/audience",
         parameters={"view": "summary"},
         constants={"segment": CacheKey.NULL_SENTINEL, "channel": "email"},
+        invariant_filters=config.invariants,
     )
 
     result = cache.fetch_or_populate(key)
@@ -161,3 +170,139 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
     again = cache.fetch_or_populate(key)
     assert call_counter["count"] == 1  # cache hit bypasses runner
     assert again.to_pylist() == as_rows
+
+
+def test_multi_value_invariant_superset_reuse_and_metadata(
+    tmp_cache_dir: pathlib.Path,
+) -> None:
+    clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
+    config = CacheConfig(
+        storage_root=tmp_cache_dir,
+        ttl=_dt.timedelta(minutes=10),
+        page_size=5,
+        invariants={
+            "region": InvariantFilter("region", separator="|", case_insensitive=True),
+            "channel": InvariantFilter("channel"),
+        },
+    )
+
+    rows = [
+        ("email", "US", "north"),
+        ("email", "CA", "north"),
+        ("email", "MX", "south"),
+        ("sms", "US", "alerts"),
+    ]
+    columns = ["channel", "region", "cohort"]
+    table = _build_duckdb_table(rows, columns)
+
+    call_counter: dict[str, int] = {"count": 0}
+
+    def runner(route_slug: str, parameters: Dict[str, Any], constants: Dict[str, Any]) -> pa.Table:
+        call_counter["count"] += 1
+        return table
+
+    cache = Cache(config=config, run_query=runner, clock=clock.now)
+
+    superset_key = CacheKey.from_parts(
+        "reports/channels",
+        parameters={"view": "regional"},
+        constants={"channel": "email", "region": "US|ca"},
+        invariant_filters=config.invariants,
+    )
+
+    superset = cache.fetch_or_populate(superset_key)
+    superset_rows = superset.to_pylist()
+    assert call_counter["count"] == 1
+    assert {row["region"] for row in superset_rows} == {"US", "CA"}
+
+    superset_dir = tmp_cache_dir / superset_key.digest
+    metadata = json.loads((superset_dir / "metadata.json").read_text())
+    assert metadata["row_count"] == 2
+    assert metadata["ttl_seconds"] == config.ttl.total_seconds()
+    assert metadata["invariants"]["region"] == ["ca", "us"]
+
+    subset_key = CacheKey.from_parts(
+        "reports/channels",
+        parameters={"view": "regional"},
+        constants={"channel": "email", "region": "ca"},
+        invariant_filters=config.invariants,
+    )
+
+    subset = cache.fetch_or_populate(subset_key)
+    assert call_counter["count"] == 1  # served from cached superset
+    subset_rows = subset.to_pylist()
+    assert {row["region"] for row in subset_rows} == {"CA"}
+    assert all(row["channel"] == "email" for row in subset_rows)
+
+    miss_key = CacheKey.from_parts(
+        "reports/channels",
+        parameters={"view": "regional"},
+        constants={"channel": "email", "region": "us|mx"},
+        invariant_filters=config.invariants,
+    )
+
+    miss = cache.fetch_or_populate(miss_key)
+    assert miss.to_pylist() == [
+        {"channel": "email", "region": "US", "cohort": "north"},
+        {"channel": "email", "region": "MX", "cohort": "south"},
+    ]
+    assert call_counter["count"] == 2  # superset did not cover MX token
+
+    miss_dir = tmp_cache_dir / miss_key.digest
+    miss_metadata = json.loads((miss_dir / "metadata.json").read_text())
+    assert miss_metadata["row_count"] == 2
+    assert miss_metadata["invariants"]["region"] == ["mx", "us"]
+
+
+def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
+    clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
+    config = CacheConfig(
+        storage_root=tmp_cache_dir,
+        ttl=_dt.timedelta(minutes=2),
+        page_size=20,
+        invariants={"segment": InvariantFilter("segment", case_insensitive=True)},
+    )
+
+    rows = [
+        ("alice", "VIP"),
+        ("bob", "vip"),
+        ("carol", "Prospect"),
+        ("dave", None),
+    ]
+    columns = ["user", "segment"]
+    table = _build_duckdb_table(rows, columns)
+
+    call_counter: dict[str, int] = {"count": 0}
+
+    def runner(route_slug: str, parameters: Dict[str, Any], constants: Dict[str, Any]) -> pa.Table:
+        call_counter["count"] += 1
+        return table
+
+    cache = Cache(config=config, run_query=runner, clock=clock.now)
+
+    key = CacheKey.from_parts(
+        "reports/segments",
+        parameters={},
+        constants={"segment": "VIP"},
+        invariant_filters=config.invariants,
+    )
+
+    result = cache.fetch_or_populate(key)
+    rows_vip = result.to_pylist()
+    assert call_counter["count"] == 1
+    assert {row["user"] for row in rows_vip} == {"alice", "bob"}
+
+    metadata = json.loads((tmp_cache_dir / key.digest / "metadata.json").read_text())
+    assert metadata["invariants"]["segment"] == ["vip"]
+
+    # Case-insensitive tokens should produce the same cache key digest
+    same_key = CacheKey.from_parts(
+        "reports/segments",
+        parameters={},
+        constants={"segment": "vip"},
+        invariant_filters=config.invariants,
+    )
+    assert same_key.digest == key.digest
+    again = cache.fetch_or_populate(same_key)
+    assert call_counter["count"] == 1
+    assert again.to_pylist() == rows_vip
