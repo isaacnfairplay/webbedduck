@@ -12,6 +12,10 @@ from .formatters import (
     format_date as _format_date,
     format_number as _format_number,
     format_timestamp as _format_timestamp,
+    normalize_identifier as _normalize_identifier,
+    render_json as _render_json,
+    render_literal as _render_literal,
+    require_string as _require_string,
     stringify,
 )
 from .state import prepare_context
@@ -36,6 +40,11 @@ class TemplateRenderer:
             "date_format": self._handle_date_format,
             "timestamp_format": self._handle_timestamp_format,
             "number_format": self._handle_number_format,
+            "lower": self._handle_lower,
+            "upper": self._handle_upper,
+            "identifier": self._handle_identifier,
+            "literal": self._handle_literal,
+            "json": self._handle_json,
         }
 
     def render(self, template: str) -> str:
@@ -152,9 +161,35 @@ class TemplateRenderer:
         format_key = args[0] if args else kwargs.get("format_key", "decimal")
         return _format_number(value, format_key, self._prepared.number_formats)
 
+    def _handle_lower(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> str:
+        text = _require_string(value, "lower")
+        return text.lower()
+
+    def _handle_upper(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> str:
+        text = _require_string(value, "upper")
+        return text.upper()
+
+    def _handle_identifier(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> str:
+        return _normalize_identifier(value)
+
+    def _handle_literal(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> str:
+        return _render_literal(value)
+
+    def _handle_json(
+        self, value: Any, args: list[Any], kwargs: dict[str, Any]
+    ) -> str:
+        return _render_json(value)
+
     def _literal_eval(self, node: ast.AST) -> Any:
         try:
             return ast.literal_eval(node)
         except ValueError as exc:  # pragma: no cover - defensive
             raise TemplateApplicationError("Modifiers accept literal arguments") from exc
-

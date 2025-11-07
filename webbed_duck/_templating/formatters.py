@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from email.utils import format_datetime
@@ -19,6 +22,10 @@ __all__ = [
     "format_timestamp",
     "format_number",
     "stringify",
+    "require_string",
+    "normalize_identifier",
+    "render_literal",
+    "render_json",
 ]
 
 DEFAULT_DATE_FORMATS: Mapping[str, str] = {
@@ -57,6 +64,10 @@ _TIMESTAMP_HANDLERS: Mapping[str, Callable[[datetime], str]] = {
     "UNIX_MS": lambda value: str(int(value.timestamp() * 1000)),
     "RFC2822": format_datetime,
 }
+
+_IDENTIFIER_SANITISER = re.compile(r"[^0-9A-Za-z_]+")
+_IDENTIFIER_COLLAPSE = re.compile(r"_+")
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def merge_formats(builtins: Mapping[str, Any], overrides: Mapping[str, Any] | None) -> Dict[str, Any]:
@@ -134,7 +145,6 @@ def format_number(value: Any, format_key: str, formats: Mapping[str, Any]) -> st
     format_definition = formats.get(format_key)
     if format_definition is None:
         raise TemplateApplicationError(f"Unknown number format '{format_key}'")
-
     if isinstance(format_definition, Mapping):
         format_definition = format_definition.get("spec")
         if format_definition is None:
@@ -148,6 +158,57 @@ def format_number(value: Any, format_key: str, formats: Mapping[str, Any]) -> st
     raise TemplateApplicationError(
         f"Unsupported number format definition '{format_definition}'"
     )
+
+
+def require_string(value: Any, modifier: str) -> str:
+    """Ensure ``value`` is a string before applying ``modifier``."""
+
+    if isinstance(value, str):
+        return value
+    raise TemplateApplicationError(
+        f"Modifier '{modifier}' requires a string value"
+    )
+
+
+def normalize_identifier(value: Any) -> str:
+    """Normalise ``value`` into a SQL-safe identifier."""
+
+    if value is None:
+        raise TemplateApplicationError("identifier() requires a value")
+    text = str(value).strip()
+    sanitized = _IDENTIFIER_SANITISER.sub("_", text)
+    collapsed = _IDENTIFIER_COLLAPSE.sub("_", sanitized).strip("_")
+    candidate = collapsed.lower()
+    if not candidate:
+        raise TemplateApplicationError("identifier() must produce a non-empty identifier")
+    if not _IDENTIFIER_PATTERN.fullmatch(candidate):
+        raise TemplateApplicationError("identifier() output must be a valid identifier")
+    return candidate
+
+
+def render_literal(value: Any) -> str:
+    """Render ``value`` as a SQL literal string."""
+
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float, Decimal)):
+        return format(value, "g")
+    if isinstance(value, str):
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        rendered = ", ".join(render_literal(item) for item in value)
+        return f"({rendered})"
+    escaped = str(value).replace("'", "''")
+    return f"'{escaped}'"
+
+
+def render_json(value: Any) -> str:
+    """Serialise ``value`` to JSON using default encoders."""
+
+    return json.dumps(value, default=str)
 
 
 def stringify(value: Any) -> str:

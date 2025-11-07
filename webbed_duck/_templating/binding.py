@@ -400,6 +400,38 @@ def _guard_mapping(
     return None, [f"Parameter '{name}' {key} guard must be a mapping"]
 
 
+def _require_guard_string(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    error: str,
+    default: str | object = _MISSING,
+) -> tuple[str, list[str]]:
+    if key in payload:
+        candidate = payload[key]
+    elif default is _MISSING:
+        return "", [error]
+    else:
+        candidate = default
+    if not isinstance(candidate, str):
+        return "", [error]
+    return candidate, []
+
+
+def _compare_message_payload(
+    compare: Mapping[str, Any],
+    *,
+    comparator: "_CompareOperator",
+    source: str,
+    target: str,
+) -> list[str]:
+    message = compare.get("message")
+    if isinstance(message, str):
+        return [message]
+    if message is None:
+        return [comparator.message(source, target)]
+    return [str(message)]
+
 _BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
     "min": (operator.lt, "at least"), "max": (operator.gt, "at most")
 }
@@ -558,20 +590,27 @@ def _validate_compare_guard(
     resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
     compare, mapping_errors = _guard_mapping(guards, "compare", name)
-    if mapping_errors or compare is None:
+    if mapping_errors:
         return mapping_errors
+    if compare is None:
+        return []
 
-    target_name = compare.get("parameter")
-    if not isinstance(target_name, str):
-        return [
-            f"Parameter '{name}' compare guard requires a parameter name"
-        ]
+    target_name, target_errors = _require_guard_string(
+        compare,
+        "parameter",
+        error=f"Parameter '{name}' compare guard requires a parameter name",
+    )
+    if target_errors:
+        return target_errors
 
-    operator_name = compare.get("operator") or "eq"
-    if not isinstance(operator_name, str):
-        return [
-            f"Parameter '{name}' compare guard operator must be a string"
-        ]
+    operator_name, operator_errors = _require_guard_string(
+        compare,
+        "operator",
+        default="eq",
+        error=f"Parameter '{name}' compare guard operator must be a string",
+    )
+    if operator_errors:
+        return operator_errors
 
     comparator = _COMPARE_OPERATORS.get(operator_name)
     if comparator is None:
@@ -585,21 +624,20 @@ def _validate_compare_guard(
             f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
         ]
 
-    with suppress(TypeError):
+    try:
         if comparator.compare(value, other.value):
             return []
+    except TypeError:
+        return [
+            f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
+        ]
 
-        message = compare.get("message")
-        if isinstance(message, str):
-            return [message]
-        if message is None:
-            return [comparator.message(name, target_name)]
-        return [str(message)]
-
-    return [
-        f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
-    ]
-
+    return _compare_message_payload(
+        compare,
+        comparator=comparator,
+        source=name,
+        target=target_name,
+    )
 
 def _as_float(value: Any) -> float | None:
     if isinstance(value, bool):
