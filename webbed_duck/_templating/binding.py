@@ -7,7 +7,7 @@ import datetime as _dt
 import operator
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Iterator, Mapping
+from typing import Any, Callable, Dict, Iterable, Iterator, Mapping
 
 from .errors import TemplateApplicationError
 
@@ -371,8 +371,7 @@ def _validate_choices_guard(
         values = list(choices)
         if value in values:
             return []
-        joined = ", ".join(map(str, values))
-        return [f"Parameter '{name}' must be one of: {joined}"]
+        return [f"Parameter '{name}' must be one of: {', '.join(map(str, values))}"]
     return [f"Parameter '{name}' choices guard must be iterable"]
 
 
@@ -388,9 +387,7 @@ def _validate_regex_guard(
     if not isinstance(pattern, str):
         return [f"Parameter '{name}' regex guard must be a string pattern"]
     if not isinstance(value, str):
-        return [
-            f"Parameter '{name}' must be a string to apply regex guard"
-        ]
+        return [f"Parameter '{name}' must be a string to apply regex guard"]
     if re.fullmatch(pattern, value) is None:
         return [f"Parameter '{name}' must match pattern '{pattern}'"]
     return []
@@ -410,37 +407,36 @@ def _validate_length_guard(
     try:
         length = len(value)  # type: ignore[arg-type]
     except TypeError:
-        return [
-            f"Parameter '{name}' length guard requires a sized value"
-        ]
+        return [f"Parameter '{name}' length guard requires a sized value"]
+    minimum_raw, maximum_raw = (bounds.get(key) for key in ("min", "max"))
 
-    errors: list[str] = []
-
-    def _coerce_bound(bound: Any, label: str) -> int | None:
+    def _coerce_bound(bound: Any, label: str) -> tuple[int | None, str | None]:
         if bound is None:
-            return None
+            return None, None
         try:
-            return int(bound)
+            return int(bound), None
         except (TypeError, ValueError):
-            errors.append(
-                f"Parameter '{name}' length guard '{label}' must be numeric"
-            )
-            return None
+            return None, f"Parameter '{name}' length guard '{label}' must be numeric"
 
-    minimum = _coerce_bound(bounds.get("min"), "min")
-    maximum = _coerce_bound(bounds.get("max"), "max")
-    if errors:
+    minimum, min_error = _coerce_bound(minimum_raw, "min")
+    maximum, max_error = _coerce_bound(maximum_raw, "max")
+    if errors := [error for error in (min_error, max_error) if error]:
         return errors
 
-    if minimum is not None and length < minimum:
-        errors.append(
-            f"Parameter '{name}' length must be at least {bounds.get('min')}"
+    return [
+        message
+        for message, condition in (
+            (
+                f"Parameter '{name}' length must be at least {minimum_raw}",
+                minimum is not None and length < minimum,
+            ),
+            (
+                f"Parameter '{name}' length must be at most {maximum_raw}",
+                maximum is not None and length > maximum,
+            ),
         )
-    if maximum is not None and length > maximum:
-        errors.append(
-            f"Parameter '{name}' length must be at most {bounds.get('max')}"
-        )
-    return errors
+        if condition
+    ]
 
 
 def _validate_range_guard(
@@ -463,9 +459,7 @@ def _validate_range_guard(
 
     numeric_value = _as_float(value)
     if numeric_value is None:
-        return [
-            f"Parameter '{name}' must be numeric to apply range guard"
-        ]
+        return [f"Parameter '{name}' must be numeric to apply range guard"]
 
     minimum = _as_float(minimum_raw) if minimum_raw is not None else None
     maximum = _as_float(maximum_raw) if maximum_raw is not None else None
@@ -487,20 +481,21 @@ def _validate_range_guard(
     if setup_errors:
         return setup_errors
 
-    violations: list[str] = []
-    if minimum is not None and numeric_value < minimum:
-        violations.append(
-            f"Parameter '{name}' must be between {minimum_raw} and {maximum_raw}"
-            if maximum is not None
-            else f"Parameter '{name}' must be at least {minimum_raw}"
+    between_message = f"Parameter '{name}' must be between {minimum_raw} and {maximum_raw}"
+    minimum_message = (
+        between_message if maximum is not None else f"Parameter '{name}' must be at least {minimum_raw}"
+    )
+    maximum_message = (
+        between_message if minimum is not None else f"Parameter '{name}' must be at most {maximum_raw}"
+    )
+    return [
+        message
+        for condition, message in (
+            (minimum is not None and numeric_value < minimum, minimum_message),
+            (maximum is not None and numeric_value > maximum, maximum_message),
         )
-    if maximum is not None and numeric_value > maximum:
-        violations.append(
-            f"Parameter '{name}' must be between {minimum_raw} and {maximum_raw}"
-            if minimum is not None
-            else f"Parameter '{name}' must be at most {maximum_raw}"
-        )
-    return violations
+        if condition
+    ]
 
 
 def _validate_datetime_window_guard(
@@ -530,32 +525,35 @@ def _validate_datetime_window_guard(
     if value_error is not None:
         return [value_error]
 
-    errors: list[str] = []
-    boundary_checks = (
-        ("earliest", earliest, operator.lt, "earlier than"),
-        ("latest", latest, operator.gt, "later than"),
-    )
-    for label, raw_boundary, comparator, descriptor in boundary_checks:
+    def _check_boundary(
+        label: str,
+        raw_boundary: Any,
+        comparator: Callable[[Any, Any], bool],
+        descriptor: str,
+    ) -> str | None:
         if raw_boundary is None:
-            continue
+            return None
         boundary_dt, boundary_error = _parse_datetime_for_guard(
             raw_boundary, name, boundary=label
         )
         if boundary_error is not None:
-            errors.append(boundary_error)
-            continue
+            return boundary_error
         if value_dt is None or boundary_dt is None:
-            continue
+            return None
         if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
-            errors.append(
-                f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
-            )
-            continue
+            return f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
         if comparator(value_dt, boundary_dt):
-            errors.append(
-                f"Parameter '{name}' must not be {descriptor} {_format_datetime_boundary(raw_boundary)}"
-            )
-    return errors
+            return f"Parameter '{name}' must not be {descriptor} {_format_datetime_boundary(raw_boundary)}"
+        return None
+
+    return [
+        error
+        for error in (
+            _check_boundary("earliest", earliest, operator.lt, "earlier than"),
+            _check_boundary("latest", latest, operator.gt, "later than"),
+        )
+        if error is not None
+    ]
 
 
 def _validate_compare_guard(
