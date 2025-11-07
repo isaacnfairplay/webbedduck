@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import datetime as _dt
+import operator
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Iterator, Mapping
@@ -187,7 +189,7 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                 errors.append(str(exc))
                 continue
 
-            guard_errors = _run_guards(name, value, spec.guards)
+            guard_errors = _run_guards(name, value, spec.guards, resolved)
             if guard_errors:
                 errors.extend(guard_errors)
                 continue
@@ -324,7 +326,12 @@ def _coerce_boolean(value: Any) -> bool:
     raise ValueError("Cannot coerce value to boolean")
 
 
-def _run_guards(name: str, value: Any, guards: Mapping[str, Any]) -> list[str]:
+def _run_guards(
+    name: str,
+    value: Any,
+    guards: Mapping[str, Any],
+    resolved: Mapping[str, "ResolvedParameter"],
+) -> list[str]:
     errors: list[str] = []
     if not guards:
         return errors
@@ -381,4 +388,226 @@ def _run_guards(name: str, value: Any, guards: Mapping[str, Any]) -> list[str]:
                         f"Parameter '{name}' length must be at most {maximum}"
                     )
 
+    if "range" in guards:
+        bounds = guards["range"]
+        if not isinstance(bounds, Mapping):
+            errors.append(
+                f"Parameter '{name}' range guard must be a mapping"
+            )
+        else:
+            minimum = bounds.get("min")
+            maximum = bounds.get("max")
+            if minimum is None and maximum is None:
+                errors.append(
+                    f"Parameter '{name}' range guard requires 'min' or 'max'"
+                )
+            else:
+                numeric_value = _as_float(value)
+                if numeric_value is None:
+                    errors.append(
+                        f"Parameter '{name}' must be numeric to apply range guard"
+                    )
+                else:
+                    min_value = _as_float(minimum) if minimum is not None else None
+                    max_value = _as_float(maximum) if maximum is not None else None
+                    range_error: str | None = None
+                    range_setup_errors: list[str] = []
+                    if minimum is not None and min_value is None:
+                        range_setup_errors.append(
+                            f"Parameter '{name}' range guard 'min' must be numeric"
+                        )
+                    if maximum is not None and max_value is None:
+                        range_setup_errors.append(
+                            f"Parameter '{name}' range guard 'max' must be numeric"
+                        )
+                    if range_setup_errors:
+                        errors.extend(range_setup_errors)
+                    elif min_value is not None and numeric_value < min_value:
+                        if max_value is not None:
+                            range_error = (
+                                f"Parameter '{name}' must be between {minimum} and {maximum}"
+                            )
+                        else:
+                            range_error = (
+                                f"Parameter '{name}' must be at least {minimum}"
+                            )
+                    if (
+                        range_error is None
+                        and max_value is not None
+                        and numeric_value > max_value
+                    ):
+                        if min_value is not None:
+                            range_error = (
+                                f"Parameter '{name}' must be between {minimum} and {maximum}"
+                            )
+                        else:
+                            range_error = (
+                                f"Parameter '{name}' must be at most {maximum}"
+                            )
+                    if range_error is not None:
+                        errors.append(range_error)
+
+    if "datetime_window" in guards:
+        window = guards["datetime_window"]
+        if not isinstance(window, Mapping):
+            errors.append(
+                f"Parameter '{name}' datetime_window guard must be a mapping"
+            )
+        else:
+            earliest = window.get("earliest")
+            latest = window.get("latest")
+            if earliest is None and latest is None:
+                errors.append(
+                    f"Parameter '{name}' datetime_window guard requires 'earliest' or 'latest'"
+                )
+            else:
+                value_dt, value_error = _parse_datetime_for_guard(
+                    value, name, for_value=True
+                )
+                if value_error is not None:
+                    errors.append(value_error)
+                else:
+                    if earliest is not None:
+                        earliest_dt, earliest_error = _parse_datetime_for_guard(
+                            earliest, name, boundary="earliest"
+                        )
+                        if earliest_error is not None:
+                            errors.append(earliest_error)
+                        elif value_dt is not None and value_dt < earliest_dt:
+                            errors.append(
+                                f"Parameter '{name}' must not be earlier than {_format_datetime_boundary(earliest)}"
+                            )
+                    if latest is not None:
+                        latest_dt, latest_error = _parse_datetime_for_guard(
+                            latest, name, boundary="latest"
+                        )
+                        if latest_error is not None:
+                            errors.append(latest_error)
+                        elif value_dt is not None and value_dt > latest_dt:
+                            errors.append(
+                                f"Parameter '{name}' must not be later than {_format_datetime_boundary(latest)}"
+                            )
+
+    if "compare" in guards:
+        compare = guards["compare"]
+        if not isinstance(compare, Mapping):
+            errors.append(
+                f"Parameter '{name}' compare guard must be a mapping"
+            )
+        else:
+            target_name = compare.get("parameter")
+            operator_name = compare.get("operator", "eq")
+            custom_message = compare.get("message")
+
+            if not isinstance(target_name, str):
+                errors.append(
+                    f"Parameter '{name}' compare guard requires a parameter name"
+                )
+            else:
+                if operator_name is None:
+                    operator_key = "eq"
+                elif isinstance(operator_name, str):
+                    operator_key = operator_name
+                else:
+                    errors.append(
+                        f"Parameter '{name}' compare guard operator must be a string"
+                    )
+                    operator_key = None
+                comparator = (
+                    _COMPARE_OPERATORS.get(operator_key) if operator_key is not None else None
+                )
+                if comparator is None:
+                    errors.append(
+                        f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'"
+                    )
+                else:
+                    other = resolved.get(target_name)
+                    if other is None:
+                        errors.append(
+                            f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
+                        )
+                    else:
+                        try:
+                            result = comparator.compare(value, other.value)
+                        except TypeError:
+                            errors.append(
+                                f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
+                            )
+                        else:
+                            if not result:
+                                if isinstance(custom_message, str):
+                                    message = custom_message
+                                elif custom_message is None:
+                                    message = comparator.message(name, target_name)
+                                else:
+                                    message = str(custom_message)
+                                errors.append(message)
+
     return errors
+
+
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_datetime_for_guard(
+    raw: Any, name: str, *, for_value: bool = False, boundary: str | None = None
+) -> tuple[_dt.datetime | None, str | None]:
+    if raw is None:
+        return None, None
+    if isinstance(raw, _dt.datetime):
+        return raw, None
+    if isinstance(raw, str):
+        try:
+            return _dt.datetime.fromisoformat(raw), None
+        except ValueError:
+            pass
+    if for_value:
+        return (
+            None,
+            f"Parameter '{name}' must be a datetime or ISO 8601 string to apply datetime_window guard",
+        )
+    qualifier = f" {boundary}" if boundary else ""
+    return (
+        None,
+        f"Parameter '{name}' datetime_window{qualifier} must be a datetime or ISO 8601 string",
+    )
+
+
+def _format_datetime_boundary(raw: Any) -> str:
+    if isinstance(raw, _dt.datetime):
+        return raw.isoformat()
+    return str(raw)
+
+
+class _CompareOperator:
+    __slots__ = ("_func", "_description")
+
+    def __init__(self, func, description: str) -> None:
+        self._func = func
+        self._description = description
+
+    def compare(self, left: Any, right: Any) -> bool:
+        return self._func(left, right)
+
+    def message(self, name: str, other: str) -> str:
+        if self._description == "different from":
+            return f"Parameter '{name}' must be different from parameter '{other}'"
+        return (
+            f"Parameter '{name}' must be {self._description} parameter '{other}'"
+        )
+
+
+_COMPARE_OPERATORS: Mapping[str, _CompareOperator] = {
+    "eq": _CompareOperator(operator.eq, "equal to"),
+    "ne": _CompareOperator(operator.ne, "different from"),
+    "lt": _CompareOperator(operator.lt, "less than"),
+    "lte": _CompareOperator(operator.le, "less than or equal to"),
+    "gt": _CompareOperator(operator.gt, "greater than"),
+    "gte": _CompareOperator(operator.ge, "greater than or equal to"),
+}

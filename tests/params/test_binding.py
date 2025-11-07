@@ -139,6 +139,86 @@ def test_guard_failures() -> None:
     assert "Parameter 'tag' length" in message
 
 
+def test_numeric_range_guard() -> None:
+    validation = build_validation(
+        {
+            "parameters": {
+                "score": {
+                    "type": "number",
+                    "guards": {"range": {"min": 0, "max": 1}},
+                }
+            }
+        }
+    )
+
+    context = validation.resolve({"score": 0.5})
+    assert context["score"].value == pytest.approx(0.5)
+
+    with pytest.raises(ParameterBindingError) as excinfo:
+        validation.resolve({"score": 2})
+
+    assert "Parameter 'score' must be between 0 and 1" in str(excinfo.value)
+
+
+def test_datetime_window_guard() -> None:
+    validation = build_validation(
+        {
+            "parameters": {
+                "published": {
+                    "type": "string",
+                    "guards": {
+                        "datetime_window": {
+                            "earliest": "2023-01-01T00:00:00",
+                            "latest": "2023-12-31T23:59:59",
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    context = validation.resolve({"published": "2023-06-01T12:00:00"})
+    assert context["published"].value == "2023-06-01T12:00:00"
+
+    with pytest.raises(ParameterBindingError) as excinfo:
+        validation.resolve({"published": "2024-01-01T00:00:00"})
+
+    assert "Parameter 'published' must not be later than" in str(excinfo.value)
+
+    with pytest.raises(ParameterBindingError) as excinfo:
+        validation.resolve({"published": "2022-12-31T23:59:59"})
+
+    assert "Parameter 'published' must not be earlier than" in str(excinfo.value)
+
+
+def test_cross_field_compare_guard() -> None:
+    validation = build_validation(
+        {
+            "parameters": {
+                "start": {"type": "integer", "required": True},
+                "end": {
+                    "type": "integer",
+                    "guards": {
+                        "compare": {
+                            "parameter": "start",
+                            "operator": "gte",
+                        }
+                    },
+                },
+            }
+        }
+    )
+
+    context = validation.resolve({"start": 5, "end": 7})
+    assert context["end"].value == 7
+
+    with pytest.raises(ParameterBindingError) as excinfo:
+        validation.resolve({"start": 5, "end": 3})
+
+    assert (
+        "Parameter 'end' must be greater than or equal to parameter 'start'"
+        in str(excinfo.value)
+    )
 def test_template_whitelist_blocks_unapproved_parameters() -> None:
     validation = build_validation(
         {
