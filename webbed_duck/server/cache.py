@@ -137,7 +137,10 @@ class InvariantFilter:
         compare_type = column_for_compare.type
         predicate: pa.Array | pa.ChunkedArray | None = None
         if compare_tokens:
-            token_array = pa.array(compare_tokens, type=compare_type)
+            try:
+                token_array = pa.array(compare_tokens, type=compare_type)
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                token_array = pa.array(compare_tokens).cast(compare_type)
             predicate = pc.is_in(column_for_compare, value_set=token_array)
         if include_null:
             null_predicate = pc.is_null(column_data)
@@ -246,6 +249,33 @@ class CacheEntry:
     expires_at: datetime
     row_count: int
     invariants: Mapping[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class CacheResult:
+    """Immutable payload returned to callers after cache resolution."""
+
+    table: pa.Table
+    row_count: int
+    from_cache: bool
+    from_superset: bool
+    entry_digest: str | None
+    requested_invariants: Mapping[str, tuple[str, ...]]
+    cached_invariants: Mapping[str, tuple[str, ...]]
+    created_at: datetime | None
+    expires_at: datetime | None
+
+    def __post_init__(self) -> None:
+        requested = {str(name): tuple(tokens) for name, tokens in self.requested_invariants.items()}
+        cached = {str(name): tuple(tokens) for name, tokens in self.cached_invariants.items()}
+        object.__setattr__(self, "requested_invariants", MappingProxyType(requested))
+        object.__setattr__(self, "cached_invariants", MappingProxyType(cached))
+
+    def to_pylist(self) -> list[dict[str, Any]]:
+        return self.table.to_pylist()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.table, name)
 
 
 class CacheStorage:
@@ -403,17 +433,31 @@ class Cache:
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
 
-    def fetch_or_populate(self, key: CacheKey) -> pa.Table:
+    def fetch_or_populate(self, key: CacheKey) -> CacheResult:
         now = self._clock()
         entry = self._storage.load_entry(key, now)
         if entry is not None:
             table = self._storage.read_entry(entry)
-            return self._apply_filters(table, key)
+            filtered = self._apply_filters(table, key)
+            return self._build_result(
+                filtered,
+                key=key,
+                entry=entry,
+                from_cache=True,
+                from_superset=False,
+            )
 
         superset_entry = self._find_superset_entry(key, now)
         if superset_entry is not None:
             table = self._storage.read_entry(superset_entry)
-            return self._apply_filters(table, key)
+            filtered = self._apply_filters(table, key)
+            return self._build_result(
+                filtered,
+                key=key,
+                entry=superset_entry,
+                from_cache=True,
+                from_superset=True,
+            )
 
         raw_table = _ensure_arrow_table(
             self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
@@ -428,7 +472,14 @@ class Cache:
             invariants=key.invariant_tokens,
         )
         stored = self._storage.read_entry(entry)
-        return self._apply_filters(stored, key)
+        stored_filtered = self._apply_filters(stored, key)
+        return self._build_result(
+            stored_filtered,
+            key=key,
+            entry=entry,
+            from_cache=False,
+            from_superset=False,
+        )
 
     def _apply_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
         filtered = table
@@ -455,6 +506,31 @@ class Cache:
                 predicate = predicate.combine_chunks()
             filtered = filtered.filter(predicate)
         return filtered
+
+    def _build_result(
+        self,
+        table: pa.Table,
+        *,
+        key: CacheKey,
+        entry: CacheEntry,
+        from_cache: bool,
+        from_superset: bool,
+    ) -> CacheResult:
+        requested_invariants = {
+            name: tuple(tokens)
+            for name, tokens in key.invariant_tokens.items()
+        }
+        return CacheResult(
+            table=table,
+            row_count=table.num_rows,
+            from_cache=from_cache,
+            from_superset=from_superset,
+            entry_digest=entry.key.digest,
+            requested_invariants=MappingProxyType(requested_invariants),
+            cached_invariants=entry.invariants,
+            created_at=entry.created_at,
+            expires_at=entry.expires_at,
+        )
 
     def _find_superset_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
         if not key.invariant_tokens:
