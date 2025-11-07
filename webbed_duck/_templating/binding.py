@@ -289,23 +289,7 @@ def _collect_unknown_parameters(
 
 def _coerce_value(name: str, type_name: str, value: Any) -> Any:
     if type_name == "string":
-        if isinstance(value, str):
-            return value
-        return str(value)
-    if type_name == "integer":
-        try:
-            return int(value)
-        except (TypeError, ValueError) as exc:
-            raise ParameterBindingError(
-                f"Parameter '{name}' must be an integer"
-            ) from exc
-    if type_name == "number":
-        try:
-            return float(value)
-        except (TypeError, ValueError) as exc:
-            raise ParameterBindingError(
-                f"Parameter '{name}' must be numeric"
-            ) from exc
+        return value if isinstance(value, str) else str(value)
     if type_name == "boolean":
         try:
             return _coerce_boolean(value)
@@ -313,9 +297,20 @@ def _coerce_value(name: str, type_name: str, value: Any) -> Any:
             raise ParameterBindingError(
                 f"Parameter '{name}' must be a boolean"
             ) from exc
-    raise ParameterBindingError(
-        f"Parameter '{name}' uses unsupported type '{type_name}'"
-    )
+
+    converter = _NUMERIC_CONVERTERS.get(type_name)
+    if converter is None:
+        raise ParameterBindingError(
+            f"Parameter '{name}' uses unsupported type '{type_name}'"
+        )
+
+    func, description = converter
+    try:
+        return func(value)
+    except (TypeError, ValueError) as exc:
+        raise ParameterBindingError(
+            f"Parameter '{name}' must be {description}"
+        ) from exc
 
 
 def _coerce_boolean(value: Any) -> bool:
@@ -326,11 +321,11 @@ def _coerce_boolean(value: Any) -> bool:
             return bool(value)
         raise ValueError("Boolean numeric coercion expects 0 or 1")
     if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "1", "yes", "on"}:
-            return True
-        if normalized in {"false", "0", "no", "off"}:
-            return False
+        match value.strip().lower():
+            case "true" | "1" | "yes" | "on":
+                return True
+            case "false" | "0" | "no" | "off":
+                return False
     raise ValueError("Cannot coerce value to boolean")
 
 
@@ -409,6 +404,12 @@ _BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
 }
 
 
+_NUMERIC_CONVERTERS: Mapping[str, tuple[Callable[[Any], Any], str]] = {
+    "integer": (int, "an integer"),
+    "number": (float, "numeric"),
+}
+
+
 def _prepare_numeric_bounds(
     bounds: Mapping[str, Any],
     converter: Callable[[Any], float | int | None],
@@ -439,10 +440,8 @@ def _validate_length_guard(
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
     bounds, mapping_errors = _guard_mapping(guards, "length", name)
-    if mapping_errors:
+    if mapping_errors or bounds is None:
         return mapping_errors
-    if bounds is None:
-        return []
     try:
         length = len(value)  # type: ignore[arg-type]
     except TypeError:
@@ -465,29 +464,32 @@ def _validate_range_guard(
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
     bounds, mapping_errors = _guard_mapping(guards, "range", name)
-    if mapping_errors:
+    if mapping_errors or bounds is None:
         return mapping_errors
-    if bounds is None:
-        return []
     data = _prepare_numeric_bounds(bounds, _as_float)
-    if all(raw is None for raw, _ in data.values()):
+    if not any(raw is not None for raw, _ in data.values()):
         return [f"Parameter '{name}' range guard requires 'min' or 'max'"]
-
-    if (numeric_value := _as_float(value)) is None:
+    numeric_value = _as_float(value)
+    if numeric_value is None:
         return [f"Parameter '{name}' must be numeric to apply range guard"]
 
     errors = _bound_errors(name, "range", data)
     if errors:
         return errors
 
-    min_raw, min_value = data["min"]
-    max_raw, max_value = data["max"]
-    between = f"Parameter '{name}' must be between {min_raw} and {max_raw}" if min_value is not None and max_value is not None else None
-    return [
-        between or f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"
+    active = [
+        (label, raw)
         for label, (raw, coerced) in data.items()
         if coerced is not None and _BOUND_CHECKS[label][0](numeric_value, coerced)
     ]
+    if not active:
+        return []
+    if all(data[label][1] is not None for label in ("min", "max")):
+        min_raw, _ = data["min"]
+        max_raw, _ = data["max"]
+        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
+    label, raw = active[0]
+    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
 
 
 def _validate_datetime_window_guard(
@@ -553,30 +555,24 @@ def _validate_compare_guard(
     resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
     compare, mapping_errors = _guard_mapping(guards, "compare", name)
-    if mapping_errors:
+    if mapping_errors or compare is None:
         return mapping_errors
-    if compare is None:
-        return []
 
-    target_name = compare.get("parameter")
-    operator_name = compare.get("operator", "eq")
-    custom_message = compare.get("message")
+    match compare:
+        case {"parameter": str() as target_name, **rest}:
+            operator_name = rest.get("operator") or "eq"
+            custom_message = rest.get("message")
+        case _:
+            return [
+                f"Parameter '{name}' compare guard requires a parameter name"
+            ]
 
-    if not isinstance(target_name, str):
-        return [
-            f"Parameter '{name}' compare guard requires a parameter name"
-        ]
-
-    if operator_name is None:
-        operator_key = "eq"
-    elif isinstance(operator_name, str):
-        operator_key = operator_name
-    else:
+    if not isinstance(operator_name, str):
         return [
             f"Parameter '{name}' compare guard operator must be a string"
         ]
 
-    comparator = _COMPARE_OPERATORS.get(operator_key)
+    comparator = _COMPARE_OPERATORS.get(operator_name)
     if comparator is None:
         return [
             f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'"
@@ -589,21 +585,20 @@ def _validate_compare_guard(
         ]
 
     try:
-        matches = comparator.compare(value, other.value)
+        if comparator.compare(value, other.value):
+            return []
     except TypeError:
         return [
             f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
         ]
 
-    if matches:
-        return []
-
-    if isinstance(custom_message, str):
-        message = custom_message
-    elif custom_message is None:
-        message = comparator.message(name, target_name)
-    else:
-        message = str(custom_message)
+    message = (
+        custom_message
+        if isinstance(custom_message, str)
+        else comparator.message(name, target_name)
+        if custom_message is None
+        else str(custom_message)
+    )
     return [message]
 
 
