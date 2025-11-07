@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from email.utils import format_datetime
-from typing import Any, Dict, Mapping
+from typing import Any, Callable, Dict, Mapping
 
 from .errors import TemplateApplicationError
 
@@ -51,13 +51,18 @@ DEFAULT_NUMBER_FORMATS: Mapping[str, str] = {
 }
 
 
+_TIMESTAMP_HANDLERS: Mapping[str, Callable[[datetime], str]] = {
+    "ISO": lambda value: value.isoformat(),
+    "UNIX": lambda value: str(int(value.timestamp())),
+    "UNIX_MS": lambda value: str(int(value.timestamp() * 1000)),
+    "RFC2822": format_datetime,
+}
+
+
 def merge_formats(builtins: Mapping[str, Any], overrides: Mapping[str, Any] | None) -> Dict[str, Any]:
     """Return ``builtins`` merged with user ``overrides``."""
 
-    merged: Dict[str, Any] = dict(builtins)
-    if overrides:
-        merged.update(overrides)
-    return merged
+    return {**builtins, **(overrides or {})}
 
 
 def date_offset(value: Any, *, days: int = 0, weeks: int = 0) -> Any:
@@ -111,16 +116,9 @@ def format_timestamp(value: Any, format_key: str, formats: Mapping[str, Any]) ->
 
     value = _ensure_datetime(value)
 
-    if format_definition == "ISO":
-        return value.isoformat()
-    if format_definition == "UNIX":
-        return str(int(value.timestamp()))
-    if format_definition == "UNIX_MS":
-        return str(int(value.timestamp() * 1000))
-    if format_definition == "RFC2822":
-        return format_datetime(value)
     if isinstance(format_definition, str):
-        return value.strftime(format_definition)
+        handler = _TIMESTAMP_HANDLERS.get(format_definition)
+        return handler(value) if handler else value.strftime(format_definition)
 
     raise TemplateApplicationError(
         f"Unsupported timestamp format definition '{format_definition}'"
@@ -137,15 +135,15 @@ def format_number(value: Any, format_key: str, formats: Mapping[str, Any]) -> st
     if format_definition is None:
         raise TemplateApplicationError(f"Unknown number format '{format_key}'")
 
-    if isinstance(format_definition, str):
-        return format(value, format_definition)
     if isinstance(format_definition, Mapping):
-        spec = format_definition.get("spec")
-        if spec is None:
+        format_definition = format_definition.get("spec")
+        if format_definition is None:
             raise TemplateApplicationError(
                 f"Invalid number format configuration for '{format_key}'"
             )
-        return format(value, spec)
+
+    if isinstance(format_definition, str):
+        return format(value, format_definition)
 
     raise TemplateApplicationError(
         f"Unsupported number format definition '{format_definition}'"
@@ -155,15 +153,16 @@ def format_number(value: Any, format_key: str, formats: Mapping[str, Any]) -> st
 def stringify(value: Any) -> str:
     """Serialise primitives and temporal values to template-friendly strings."""
 
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float, Decimal)):
-        return format(value, "g")
-    if isinstance(value, datetime):
-        value = _ensure_datetime(value)
-        return value.isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
+    match value:
+        case None:
+            return "null"
+        case bool() as boolean:
+            return "true" if boolean else "false"
+        case int() | float() | Decimal():
+            return format(value, "g")
+        case datetime() as dt:
+            return _ensure_datetime(dt).isoformat()
+        case date() as current_date:
+            return current_date.isoformat()
+
     return str(value)
