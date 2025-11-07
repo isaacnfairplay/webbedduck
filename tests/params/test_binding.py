@@ -191,6 +191,28 @@ def test_datetime_window_guard() -> None:
     assert "Parameter 'published' must not be earlier than" in str(excinfo.value)
 
 
+def test_datetime_window_guard_timezone_mismatch() -> None:
+    validation = build_validation(
+        {
+            "parameters": {
+                "published": {
+                    "type": "string",
+                    "guards": {
+                        "datetime_window": {
+                            "earliest": "2023-01-01T00:00:00+00:00",
+                        }
+                    },
+                }
+            }
+        }
+    )
+
+    with pytest.raises(ParameterBindingError) as excinfo:
+        validation.resolve({"published": "2023-06-01T00:00:00"})
+
+    assert "timezone awareness" in str(excinfo.value)
+
+
 def test_cross_field_compare_guard() -> None:
     validation = build_validation(
         {

@@ -473,20 +473,32 @@ def _run_guards(
                         )
                         if earliest_error is not None:
                             errors.append(earliest_error)
-                        elif value_dt is not None and value_dt < earliest_dt:
-                            errors.append(
-                                f"Parameter '{name}' must not be earlier than {_format_datetime_boundary(earliest)}"
-                            )
+                        elif value_dt is not None:
+                            if _datetimes_mixed_timezone_awareness(
+                                value_dt, earliest_dt
+                            ):
+                                errors.append(
+                                    f"Parameter '{name}' datetime_window guard requires value and earliest boundary to use the same timezone awareness"
+                                )
+                            elif value_dt < earliest_dt:
+                                errors.append(
+                                    f"Parameter '{name}' must not be earlier than {_format_datetime_boundary(earliest)}"
+                                )
                     if latest is not None:
                         latest_dt, latest_error = _parse_datetime_for_guard(
                             latest, name, boundary="latest"
                         )
                         if latest_error is not None:
                             errors.append(latest_error)
-                        elif value_dt is not None and value_dt > latest_dt:
-                            errors.append(
-                                f"Parameter '{name}' must not be later than {_format_datetime_boundary(latest)}"
-                            )
+                        elif value_dt is not None:
+                            if _datetimes_mixed_timezone_awareness(value_dt, latest_dt):
+                                errors.append(
+                                    f"Parameter '{name}' datetime_window guard requires value and latest boundary to use the same timezone awareness"
+                                )
+                            elif value_dt > latest_dt:
+                                errors.append(
+                                    f"Parameter '{name}' must not be later than {_format_datetime_boundary(latest)}"
+                                )
 
     if "compare" in guards:
         compare = guards["compare"]
@@ -583,6 +595,14 @@ def _format_datetime_boundary(raw: Any) -> str:
     if isinstance(raw, _dt.datetime):
         return raw.isoformat()
     return str(raw)
+
+
+def _datetimes_mixed_timezone_awareness(
+    left: _dt.datetime | None, right: _dt.datetime | None
+) -> bool:
+    if left is None or right is None:
+        return False
+    return (left.tzinfo is None) != (right.tzinfo is None)
 
 
 class _CompareOperator:
