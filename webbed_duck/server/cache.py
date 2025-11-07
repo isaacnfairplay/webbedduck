@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 from dataclasses import dataclass, field
+from functools import reduce
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
@@ -118,20 +119,22 @@ class InvariantFilter:
             candidates = value.split(self.separator)
         else:
             candidates = _ensure_sequence(value)
-        normalized: list[str] = []
-        for candidate in candidates:
-            if candidate is None:
-                normalized.append(NULL_SENTINEL)
-                continue
-            token = str(candidate).strip()
-            if not token:
-                continue
-            if self.case_insensitive:
-                token = token.lower()
-            normalized.append(token)
-        if not normalized:
-            return tuple()
+        normalized = tuple(
+            token
+            for candidate in candidates
+            if (token := self._normalize_candidate(candidate)) is not None
+        )
         return tuple(sorted(dict.fromkeys(normalized)))
+
+    def _normalize_candidate(self, candidate: Any) -> str | None:
+        if candidate is None:
+            return NULL_SENTINEL
+        token = str(candidate).strip()
+        if not token:
+            return None
+        if self.case_insensitive:
+            return token.lower()
+        return token
 
     def encode(self, tokens: tuple[str, ...]) -> str:
         if not tokens:
@@ -139,33 +142,54 @@ class InvariantFilter:
         return self.separator.join(tokens)
 
     def apply(self, table: pa.Table, tokens: tuple[str, ...]) -> pa.Table:
-        if not tokens:
-            return table
-        column_name = self.column or self.key
-        if column_name not in table.column_names:
-            return table
-        column_data = table[column_name]
-        include_null = NULL_SENTINEL in tokens
-        compare_tokens = tuple(token for token in tokens if token != NULL_SENTINEL)
-        column_for_compare = column_data
-        if self.case_insensitive and pa.types.is_string(column_data.type):
-            column_for_compare = pc.utf8_lower(column_data)
-        compare_type = column_for_compare.type
-        predicate: pa.Array | pa.ChunkedArray | None = None
-        if compare_tokens:
-            try:
-                token_array = pa.array(compare_tokens, type=compare_type)
-            except (pa.ArrowTypeError, pa.ArrowInvalid):
-                token_array = pa.array(compare_tokens).cast(compare_type)
-            predicate = pc.is_in(column_for_compare, value_set=token_array)
-        if include_null:
-            null_predicate = pc.is_null(column_data)
-            predicate = null_predicate if predicate is None else pc.or_(predicate, null_predicate)
+        predicate = self._predicate_for(table, tokens)
         if predicate is None:
             return table
         if isinstance(predicate, pa.ChunkedArray):
             predicate = predicate.combine_chunks()
         return table.filter(predicate)
+
+    def _predicate_for(
+        self, table: pa.Table, tokens: tuple[str, ...]
+    ) -> pa.Array | pa.ChunkedArray | None:
+        if not tokens:
+            return None
+        column_name = self.column or self.key
+        if column_name not in table.column_names:
+            return None
+        column_data = table[column_name]
+        column_for_compare = (
+            pc.utf8_lower(column_data)
+            if self.case_insensitive and pa.types.is_string(column_data.type)
+            else column_data
+        )
+        predicate = self._membership_predicate(column_for_compare, tokens)
+        return self._include_nulls(predicate, column_data, tokens)
+
+    def _membership_predicate(
+        self, column_data: pa.Array | pa.ChunkedArray, tokens: tuple[str, ...]
+    ) -> pa.Array | pa.ChunkedArray | None:
+        compare_tokens = tuple(token for token in tokens if token != NULL_SENTINEL)
+        if not compare_tokens:
+            return None
+        try:
+            token_array = pa.array(compare_tokens, type=column_data.type)
+        except (pa.ArrowTypeError, pa.ArrowInvalid):
+            token_array = pa.array(compare_tokens).cast(column_data.type)
+        return pc.is_in(column_data, value_set=token_array)
+
+    def _include_nulls(
+        self,
+        predicate: pa.Array | pa.ChunkedArray | None,
+        column_data: pa.Array | pa.ChunkedArray,
+        tokens: tuple[str, ...],
+    ) -> pa.Array | pa.ChunkedArray | None:
+        if NULL_SENTINEL not in tokens:
+            return predicate
+        null_predicate = pc.is_null(column_data)
+        if predicate is None:
+            return null_predicate
+        return pc.or_(predicate, null_predicate)
 
 
 @dataclass(frozen=True)
@@ -387,44 +411,52 @@ class CacheStorage:
             shutil.rmtree(entry_dir)
 
     def scan_entries(self, *, route_slug: str, now: datetime) -> list[CacheEntry]:
-        entries: list[CacheEntry] = []
-        for metadata_path in self._root.glob("*/metadata.json"):
-            entry_dir = metadata_path.parent
-            data = json.loads(metadata_path.read_text())
-            if data.get("route_slug") != route_slug:
-                continue
-            created_at = datetime.fromisoformat(data["created_at"])
-            ttl_seconds = data["ttl_seconds"]
-            expires_at = created_at + timedelta(seconds=ttl_seconds)
-            if now >= expires_at:
-                shutil.rmtree(entry_dir)
-                continue
-            raw_params = data.get("raw_parameters", {})
-            raw_consts = data.get("raw_constants", {})
-            invariants = {
-                str(name): tuple(tokens)
-                for name, tokens in data.get("invariants", {}).items()
-            }
-            key = CacheKey(
-                route_slug=data["route_slug"],
-                parameters=tuple(tuple(item) for item in data.get("parameters", [])),
-                constants=tuple(tuple(item) for item in data.get("constants", [])),
-                digest=entry_dir.name,
-                _raw_parameters=MappingProxyType({str(k): v for k, v in raw_params.items()}),
-                _raw_constants=MappingProxyType({str(k): v for k, v in raw_consts.items()}),
-                _invariant_tokens=MappingProxyType(invariants),
-            )
-            entries.append(
-                CacheEntry(
-                    key=key,
-                    path=entry_dir,
-                    created_at=created_at,
-                    expires_at=expires_at,
-                    row_count=data.get("row_count", 0),
-                    invariants=key.invariant_tokens,
+        return [
+            entry
+            for metadata_path in self._root.glob("*/metadata.json")
+            if (
+                entry := self._entry_from_metadata(
+                    metadata_path, route_slug=route_slug, now=now
                 )
             )
-        return entries
+            is not None
+        ]
+
+    def _entry_from_metadata(
+        self, metadata_path: Path, *, route_slug: str, now: datetime
+    ) -> CacheEntry | None:
+        entry_dir = metadata_path.parent
+        data = json.loads(metadata_path.read_text())
+        if data.get("route_slug") != route_slug:
+            return None
+        created_at = datetime.fromisoformat(data["created_at"])
+        expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
+        if now >= expires_at:
+            shutil.rmtree(entry_dir)
+            return None
+        raw_params = data.get("raw_parameters", {})
+        raw_consts = data.get("raw_constants", {})
+        invariants = {
+            str(name): tuple(tokens)
+            for name, tokens in data.get("invariants", {}).items()
+        }
+        key = CacheKey(
+            route_slug=data["route_slug"],
+            parameters=tuple(tuple(item) for item in data.get("parameters", [])),
+            constants=tuple(tuple(item) for item in data.get("constants", [])),
+            digest=entry_dir.name,
+            _raw_parameters=MappingProxyType({str(k): v for k, v in raw_params.items()}),
+            _raw_constants=MappingProxyType({str(k): v for k, v in raw_consts.items()}),
+            _invariant_tokens=MappingProxyType(invariants),
+        )
+        return CacheEntry(
+            key=key,
+            path=entry_dir,
+            created_at=created_at,
+            expires_at=expires_at,
+            row_count=data.get("row_count", 0),
+            invariants=key.invariant_tokens,
+        )
 
 
 class Cache:
@@ -506,18 +538,26 @@ class Cache:
         return filtered
 
     def _apply_constant_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
-        filtered = table
-        constant_items = [
-            (column, target)
-            for column, target in key.constant_values.items()
-            if column not in self._invariants and column in filtered.column_names
-        ]
-        for column, target in constant_items:
-            predicate = self._constant_predicate(filtered[column], target)
-            if isinstance(predicate, pa.ChunkedArray):
-                predicate = predicate.combine_chunks()
-            filtered = filtered.filter(predicate)
-        return filtered
+        return reduce(
+            self._filter_by_column,
+            (
+                (column, target)
+                for column, target in key.constant_values.items()
+                if column not in self._invariants
+            ),
+            table,
+        )
+
+    def _filter_by_column(
+        self, table: pa.Table, column_target: tuple[str, Any]
+    ) -> pa.Table:
+        column, target = column_target
+        if column not in table.column_names:
+            return table
+        predicate = self._constant_predicate(table[column], target)
+        if isinstance(predicate, pa.ChunkedArray):
+            predicate = predicate.combine_chunks()
+        return table.filter(predicate)
 
     def _constant_predicate(
         self, column_data: pa.Array | pa.ChunkedArray, target: Any
@@ -590,15 +630,16 @@ class Cache:
         requested_constants: Mapping[str, Any],
         requested_invariants: Mapping[str, set[str]],
     ) -> bool:
+        if entry.key.digest == key.digest:
+            return False
+        if dict(entry.key.parameter_values) != requested_params:
+            return False
+        if not self._non_invariant_equal(entry.key.constant_values, requested_constants):
+            return False
         entry_invariants = {name: set(tokens) for name, tokens in entry.invariants.items()}
-        matches = (
-            entry.key.digest != key.digest
-            and dict(entry.key.parameter_values) == requested_params
-            and self._non_invariant_equal(entry.key.constant_values, requested_constants)
-            and entry_invariants.keys() == requested_invariants.keys()
-            and all(
-                requested_invariants[name].issubset(entry_invariants[name])
-                for name in requested_invariants
-            )
+        if entry_invariants.keys() != requested_invariants.keys():
+            return False
+        return all(
+            requested_invariants[name].issubset(entry_invariants[name])
+            for name in requested_invariants
         )
-        return matches
