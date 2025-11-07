@@ -1,7 +1,7 @@
 scripts/generate_template_docs.py: 58.24
 webbed_duck/__init__.py: 100.00
 webbed_duck/_templating/__init__.py: 100.00
-webbed_duck/_templating/binding.py: 9.02
+webbed_duck/_templating/binding.py: 9.87
 webbed_duck/_templating/errors.py: 100.00
 webbed_duck/_templating/formatters.py: 38.95
 webbed_duck/_templating/parameters.py: 69.51

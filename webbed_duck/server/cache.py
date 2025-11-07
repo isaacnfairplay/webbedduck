@@ -32,6 +32,25 @@ def _decode_null(value: Any) -> Any:
     return value
 
 
+def _freeze_str_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    return MappingProxyType({str(key): value for key, value in mapping.items()})
+
+
+def _freeze_token_mapping(
+    mapping: Mapping[str, Iterable[str]] | Mapping[str, Sequence[str]]
+) -> Mapping[str, tuple[str, ...]]:
+    return MappingProxyType({str(name): tuple(tokens) for name, tokens in mapping.items()})
+
+
+def _handle_expiry(
+    expires_at: datetime, now: datetime, *, on_expire: Callable[[], None]
+) -> bool:
+    if now < expires_at:
+        return False
+    on_expire()
+    return True
+
+
 def _stringify(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -209,7 +228,7 @@ class CacheSettings:
         if self.ttl <= timedelta(0):
             msg = "ttl must be positive"
             raise ValueError(msg)
-        object.__setattr__(self, "invariants", MappingProxyType(dict(self.invariants)))
+        object.__setattr__(self, "invariants", _freeze_str_mapping(self.invariants))
 
 
 CacheConfig = CacheSettings
@@ -256,9 +275,9 @@ class CacheKey:
             parameters=normalized_params,
             constants=normalized_constants_tuple,
             digest=digest,
-            _raw_parameters=MappingProxyType(params_copy),
-            _raw_constants=MappingProxyType(const_copy),
-            _invariant_tokens=MappingProxyType({k: tuple(v) for k, v in invariant_tokens.items()}),
+            _raw_parameters=_freeze_str_mapping(params_copy),
+            _raw_constants=_freeze_str_mapping(const_copy),
+            _invariant_tokens=_freeze_token_mapping(invariant_tokens),
         )
 
     @property
@@ -301,10 +320,8 @@ class CacheResult:
     expires_at: datetime | None
 
     def __post_init__(self) -> None:
-        requested = {str(name): tuple(tokens) for name, tokens in self.requested_invariants.items()}
-        cached = {str(name): tuple(tokens) for name, tokens in self.cached_invariants.items()}
-        object.__setattr__(self, "requested_invariants", MappingProxyType(requested))
-        object.__setattr__(self, "cached_invariants", MappingProxyType(cached))
+        object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
+        object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
     def to_pylist(self) -> list[dict[str, Any]]:
         return self.table.to_pylist()
@@ -330,22 +347,17 @@ class CacheStorage:
             return None
         data = json.loads(metadata_path.read_text())
         created_at = datetime.fromisoformat(data["created_at"])
-        ttl_seconds = data["ttl_seconds"]
-        expires_at = created_at + timedelta(seconds=ttl_seconds)
-        if now >= expires_at:
-            self.evict(key)
+        expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
+        if _handle_expiry(expires_at, now, on_expire=lambda: self.evict(key)):
             return None
-        invariants = {
-            str(name): tuple(tokens)
-            for name, tokens in data.get("invariants", {}).items()
-        }
+        invariants = _freeze_token_mapping(data.get("invariants", {}))
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
             row_count=data["row_count"],
-            invariants=MappingProxyType(invariants),
+            invariants=invariants,
         )
 
     def write_entry(
@@ -393,7 +405,7 @@ class CacheStorage:
             created_at=created_at,
             expires_at=expires_at,
             row_count=table.num_rows,
-            invariants=MappingProxyType({name: tuple(tokens) for name, tokens in invariant_payload.items()}),
+            invariants=_freeze_token_mapping(invariant_payload),
         )
 
     def read_entry(self, entry: CacheEntry) -> pa.Table:
@@ -427,27 +439,23 @@ class CacheStorage:
     ) -> CacheEntry | None:
         entry_dir = metadata_path.parent
         data = json.loads(metadata_path.read_text())
-        if data.get("route_slug") != route_slug:
-            return None
         created_at = datetime.fromisoformat(data["created_at"])
         expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
-        if now >= expires_at:
-            shutil.rmtree(entry_dir)
+        if data.get("route_slug") != route_slug or _handle_expiry(
+            expires_at, now, on_expire=lambda: shutil.rmtree(entry_dir)
+        ):
             return None
-        raw_params = data.get("raw_parameters", {})
-        raw_consts = data.get("raw_constants", {})
-        invariants = {
-            str(name): tuple(tokens)
-            for name, tokens in data.get("invariants", {}).items()
-        }
+        raw_params = {str(k): v for k, v in data.get("raw_parameters", {}).items()}
+        raw_consts = {str(k): v for k, v in data.get("raw_constants", {}).items()}
+        invariants = data.get("invariants", {})
         key = CacheKey(
             route_slug=data["route_slug"],
             parameters=tuple(tuple(item) for item in data.get("parameters", [])),
             constants=tuple(tuple(item) for item in data.get("constants", [])),
             digest=entry_dir.name,
-            _raw_parameters=MappingProxyType({str(k): v for k, v in raw_params.items()}),
-            _raw_constants=MappingProxyType({str(k): v for k, v in raw_consts.items()}),
-            _invariant_tokens=MappingProxyType(invariants),
+            _raw_parameters=_freeze_str_mapping(raw_params),
+            _raw_constants=_freeze_str_mapping(raw_consts),
+            _invariant_tokens=_freeze_token_mapping(invariants),
         )
         return CacheEntry(
             key=key,
@@ -579,17 +587,13 @@ class Cache:
         from_cache: bool,
         from_superset: bool,
     ) -> CacheResult:
-        requested_invariants = {
-            name: tuple(tokens)
-            for name, tokens in key.invariant_tokens.items()
-        }
         return CacheResult(
             table=table,
             row_count=table.num_rows,
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,
-            requested_invariants=MappingProxyType(requested_invariants),
+            requested_invariants=_freeze_token_mapping(key.invariant_tokens),
             cached_invariants=entry.invariants,
             created_at=entry.created_at,
             expires_at=entry.expires_at,
