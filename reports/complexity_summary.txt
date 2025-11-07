@@ -1,0 +1,16 @@
+Complexity Summary (Auto)
+─────────────────────────
+Files changed: 7
+Non-space SLOC: 5868 → 6096  (Δ 228)
+Functions: 188 → 207
+Expressions: 3856 → 4044
+
+Cyclomatic (Radon)
+  Total:   702 → 736
+  Average: 3.56 → 3.41
+
+Maintainability Index (avg):
+  58.66 → 57.88
+
+Halstead Bug Estimate (overall):
+  2.372 → 2.408

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Callable, Dict, Mapping
 
 from .errors import TemplateApplicationError
@@ -18,6 +21,8 @@ from .state import prepare_context
 
 __all__ = ["TemplateRenderer"]
 
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 
 class TemplateRenderer:
     """Render ``{{ ctx.* }}`` expressions against a request context."""
@@ -30,12 +35,21 @@ class TemplateRenderer:
             "constants": self._prepared.constants,
             "parameters": self._prepared.parameters,
         }
-        self._modifier_handlers: Dict[str, Callable[[Any, list[Any], dict[str, Any]], Any]] = {
+        self._modifier_handlers: Dict[
+            str, Callable[[Any, list[Any], dict[str, Any]], Any]
+        ] = {
             "coalesce": self._handle_coalesce,
             "date_offset": self._handle_date_offset,
             "date_format": self._handle_date_format,
             "timestamp_format": self._handle_timestamp_format,
             "number_format": self._handle_number_format,
+        }
+        self._filter_handlers: Dict[str, Callable[[Any], Any]] = {
+            "lower": self._filter_lower,
+            "upper": self._filter_upper,
+            "identifier": self._filter_identifier,
+            "literal": self._filter_literal,
+            "json": self._filter_json,
         }
 
     def render(self, template: str) -> str:
@@ -54,9 +68,14 @@ class TemplateRenderer:
         base, *modifier_segments = segments
         value = self._resolve_path(base)
         filtered_modifiers = [segment for segment in modifier_segments if segment]
-        for modifier in filtered_modifiers:
-            value = self._apply_modifier(value, modifier)
+        for segment in filtered_modifiers:
+            value = self._apply_pipeline_segment(value, segment)
         return value
+
+    def _apply_pipeline_segment(self, value: Any, segment: str) -> Any:
+        if segment.isidentifier():
+            return self._apply_filter(value, segment)
+        return self._apply_modifier(value, segment)
 
     def _resolve_path(self, path_expression: str) -> Any:
         try:
@@ -107,6 +126,12 @@ class TemplateRenderer:
             )
         raise TemplateApplicationError("Indexed access is only supported for mappings")
 
+    def _apply_filter(self, value: Any, filter_name: str) -> Any:
+        handler = self._filter_handlers.get(filter_name)
+        if handler is None:
+            raise TemplateApplicationError(f"Unknown filter '{filter_name}'")
+        return handler(value)
+
     def _apply_modifier(self, value: Any, modifier: str) -> Any:
         try:
             call = ast.parse(modifier, mode="eval").body
@@ -152,9 +177,58 @@ class TemplateRenderer:
         format_key = args[0] if args else kwargs.get("format_key", "decimal")
         return _format_number(value, format_key, self._prepared.number_formats)
 
+    def _filter_lower(self, value: Any) -> str:
+        text = self._ensure_text(value, "lower")
+        return text.lower()
+
+    def _filter_upper(self, value: Any) -> str:
+        text = self._ensure_text(value, "upper")
+        return text.upper()
+
+    def _filter_identifier(self, value: Any) -> str:
+        text = self._ensure_text(value, "identifier")
+        if not _IDENTIFIER_PATTERN.match(text):
+            raise TemplateApplicationError(
+                "Filter 'identifier' value must be a valid identifier"
+            )
+        return text
+
+    def _filter_literal(self, value: Any) -> str:
+        return self._render_literal(value)
+
+    def _filter_json(self, value: Any) -> str:
+        return json.dumps(value, default=self._json_default)
+
+    def _ensure_text(self, value: Any, filter_name: str) -> str:
+        if not isinstance(value, str):
+            raise TemplateApplicationError(
+                f"Filter '{filter_name}' requires a text value"
+            )
+        return value
+
+    @staticmethod
+    def _json_default(value: Any) -> Any:
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
+
+    @classmethod
+    def _render_literal(cls, value: Any) -> str:
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "TRUE" if value else "FALSE"
+        if isinstance(value, (int, float, Decimal)):
+            return str(value)
+        if isinstance(value, (list, tuple)):
+            rendered = ", ".join(cls._render_literal(item) for item in value)
+            return f"({rendered})"
+        text = str(value)
+        escaped = text.replace("'", "''")
+        return f"'{escaped}'"
+
     def _literal_eval(self, node: ast.AST) -> Any:
         try:
             return ast.literal_eval(node)
         except ValueError as exc:  # pragma: no cover - defensive
             raise TemplateApplicationError("Modifiers accept literal arguments") from exc
-
