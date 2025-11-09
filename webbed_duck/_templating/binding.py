@@ -363,12 +363,12 @@ def _validate_choices_guard(
     choices = guards.get("choices")
     if choices is None:
         return []
-    if isinstance(choices, Iterable) and not isinstance(choices, str):
-        values = list(choices)
-        if value in values:
-            return []
-        return [f"Parameter '{name}' must be one of: {', '.join(map(str, values))}"]
-    return [f"Parameter '{name}' choices guard must be iterable"]
+    if not isinstance(choices, Iterable) or isinstance(choices, str):
+        return [f"Parameter '{name}' choices guard must be iterable"]
+    values = list(choices)
+    return [] if value in values else [
+        f"Parameter '{name}' must be one of: {', '.join(map(str, values))}"
+    ]
 
 
 def _validate_regex_guard(
@@ -384,9 +384,9 @@ def _validate_regex_guard(
         return [f"Parameter '{name}' regex guard must be a string pattern"]
     if not isinstance(value, str):
         return [f"Parameter '{name}' must be a string to apply regex guard"]
-    if re.fullmatch(pattern, value) is None:
-        return [f"Parameter '{name}' must match pattern '{pattern}'"]
-    return []
+    return [] if re.fullmatch(pattern, value) else [
+        f"Parameter '{name}' must match pattern '{pattern}'"
+    ]
 
 
 def _guard_mapping(
@@ -398,6 +398,18 @@ def _guard_mapping(
     if isinstance(mapping, Mapping):
         return mapping, []
     return None, [f"Parameter '{name}' {key} guard must be a mapping"]
+
+
+def _apply_guard_mapping(
+    name: str,
+    guards: Mapping[str, Any],
+    key: str,
+    handler: Callable[[Mapping[str, Any]], list[str]],
+) -> list[str]:
+    mapping, errors = _guard_mapping(guards, key, name)
+    if errors or mapping is None:
+        return errors
+    return handler(mapping)
 
 
 _BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
@@ -439,24 +451,20 @@ def _validate_length_guard(
     guards: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    bounds, mapping_errors = _guard_mapping(guards, "length", name)
-    if mapping_errors or bounds is None:
-        return mapping_errors
+    def handle(bounds: Mapping[str, Any]) -> list[str]:
+        try:
+            length = len(value)  # type: ignore[arg-type]
+        except TypeError:
+            return [f"Parameter '{name}' length guard requires a sized value"]
 
-    try:
-        length = len(value)  # type: ignore[arg-type]
-    except TypeError:
-        return [f"Parameter '{name}' length guard requires a sized value"]
+        numeric, errors = _coerce_guard_values(name, "length", bounds, _as_int)
+        return errors or [
+            f"Parameter '{name}' length must be {_BOUND_CHECKS[label][1]} {raw}"
+            for label, (raw, coerced) in numeric.items()
+            if _BOUND_CHECKS[label][0](length, coerced)
+        ]
 
-    numeric, errors = _coerce_guard_values(name, "length", bounds, _as_int)
-    if errors:
-        return errors
-
-    return [
-        f"Parameter '{name}' length must be {_BOUND_CHECKS[label][1]} {raw}"
-        for label, (raw, coerced) in numeric.items()
-        if _BOUND_CHECKS[label][0](length, coerced)
-    ]
+    return _apply_guard_mapping(name, guards, "length", handle)
 
 
 def _range_violation_messages(
@@ -494,19 +502,15 @@ def _validate_range_guard(
     guards: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    bounds, mapping_errors = _guard_mapping(guards, "range", name)
-    if mapping_errors or bounds is None:
-        return mapping_errors
+    def handle(bounds: Mapping[str, Any]) -> list[str]:
+        numeric_value, errors = _range_guard_preflight(name, bounds, value)
+        if errors:
+            return errors
 
-    numeric_value, errors = _range_guard_preflight(name, bounds, value)
-    if errors:
-        return errors
+        numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
+        return errors or _range_violation_messages(name, numeric_value, numeric)
 
-    numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
-    if errors:
-        return errors
-
-    return _range_violation_messages(name, numeric_value, numeric)
+    return _apply_guard_mapping(name, guards, "range", handle)
 
 
 def _validate_datetime_window_guard(
@@ -515,54 +519,51 @@ def _validate_datetime_window_guard(
     guards: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    window, mapping_errors = _guard_mapping(guards, "datetime_window", name)
-    if mapping_errors:
-        return mapping_errors
-    if window is None:
-        return []
+    def handle(window: Mapping[str, Any]) -> list[str]:
+        earliest = window.get("earliest")
+        latest = window.get("latest")
+        if earliest is None and latest is None:
+            return [
+                f"Parameter '{name}' datetime_window guard requires 'earliest' or 'latest'"
+            ]
 
-    earliest = window.get("earliest")
-    latest = window.get("latest")
-    if earliest is None and latest is None:
+        value_dt, value_error = _parse_datetime_for_guard(
+            value, name, for_value=True
+        )
+        if value_error is not None:
+            return [value_error]
+
+        def _check_boundary(
+            label: str,
+            raw_boundary: Any,
+            comparator: Callable[[Any, Any], bool],
+            descriptor: str,
+        ) -> str | None:
+            if raw_boundary is None:
+                return None
+            boundary_dt, boundary_error = _parse_datetime_for_guard(
+                raw_boundary, name, boundary=label
+            )
+            if boundary_error is not None:
+                return boundary_error
+            if value_dt is None or boundary_dt is None:
+                return None
+            if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
+                return f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
+            if comparator(value_dt, boundary_dt):
+                return f"Parameter '{name}' must not be {descriptor} {_format_datetime_boundary(raw_boundary)}"
+            return None
+
         return [
-            f"Parameter '{name}' datetime_window guard requires 'earliest' or 'latest'"
+            error
+            for error in (
+                _check_boundary("earliest", earliest, operator.lt, "earlier than"),
+                _check_boundary("latest", latest, operator.gt, "later than"),
+            )
+            if error is not None
         ]
 
-    value_dt, value_error = _parse_datetime_for_guard(
-        value, name, for_value=True
-    )
-    if value_error is not None:
-        return [value_error]
-
-    def _check_boundary(
-        label: str,
-        raw_boundary: Any,
-        comparator: Callable[[Any, Any], bool],
-        descriptor: str,
-    ) -> str | None:
-        if raw_boundary is None:
-            return None
-        boundary_dt, boundary_error = _parse_datetime_for_guard(
-            raw_boundary, name, boundary=label
-        )
-        if boundary_error is not None:
-            return boundary_error
-        if value_dt is None or boundary_dt is None:
-            return None
-        if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
-            return f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
-        if comparator(value_dt, boundary_dt):
-            return f"Parameter '{name}' must not be {descriptor} {_format_datetime_boundary(raw_boundary)}"
-        return None
-
-    return [
-        error
-        for error in (
-            _check_boundary("earliest", earliest, operator.lt, "earlier than"),
-            _check_boundary("latest", latest, operator.gt, "later than"),
-        )
-        if error is not None
-    ]
+    return _apply_guard_mapping(name, guards, "datetime_window", handle)
 
 
 def _resolve_compare_configuration(
@@ -619,31 +620,30 @@ def _validate_compare_guard(
     guards: Mapping[str, Any],
     resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    compare, mapping_errors = _guard_mapping(guards, "compare", name)
-    if mapping_errors or compare is None:
-        return mapping_errors
+    def handle(compare: Mapping[str, Any]) -> list[str]:
+        target_name, comparator, other, config_errors = _resolve_compare_configuration(
+            name, compare, resolved
+        )
+        if config_errors:
+            return config_errors
 
-    target_name, comparator, other, config_errors = _resolve_compare_configuration(
-        name, compare, resolved
-    )
-    if config_errors:
-        return config_errors
+        with suppress(TypeError):
+            assert comparator is not None and other is not None
+            if comparator.compare(value, other.value):
+                return []
 
-    with suppress(TypeError):
-        assert comparator is not None and other is not None
-        if comparator.compare(value, other.value):
-            return []
+            message = compare.get("message")
+            if isinstance(message, str):
+                return [message]
+            if message is None:
+                return [comparator.message(name, target_name)]
+            return [str(message)]
 
-        message = compare.get("message")
-        if isinstance(message, str):
-            return [message]
-        if message is None:
-            return [comparator.message(name, target_name)]
-        return [str(message)]
+        return [
+            f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
+        ]
 
-    return [
-        f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
-    ]
+    return _apply_guard_mapping(name, guards, "compare", handle)
 
 
 def _as_float(value: Any) -> float | None:
