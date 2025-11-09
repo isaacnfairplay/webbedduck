@@ -908,7 +908,8 @@ class Cache:
         from_cache: bool,
         from_superset: bool,
     ) -> CacheResult:
-        data = DataHandle(table, entry.page_size, entry.path)
+        entry_path = entry.path if table.num_rows == entry.row_count else None
+        data = DataHandle(table, entry.page_size, entry_path)
         return CacheResult(
             data=data,
             from_cache=from_cache,

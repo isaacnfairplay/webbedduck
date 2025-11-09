@@ -11,6 +11,7 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 pa = pytest.importorskip("pyarrow")
+pq = pytest.importorskip("pyarrow.parquet")
 
 from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, InvariantFilter
 
@@ -299,6 +300,9 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     subset_rows = subset.to_pylist()
     assert {row["region"] for row in subset_rows} == {"CA"}
     assert all(row["channel"] == "email" for row in subset_rows)
+    with subset.open("parquet", page=0) as parquet_stream:
+        streamed_subset = pq.read_table(parquet_stream).to_pylist()
+    assert streamed_subset == subset_rows
     assert subset.from_cache is True
     assert subset.from_superset is True
     assert subset.entry_digest == superset_key.digest
