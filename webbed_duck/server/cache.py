@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import abc
+import contextlib
 import hashlib
 import json
+import io
 import shutil
 from dataclasses import dataclass, field
 from functools import reduce
 from datetime import datetime, timedelta, timezone
+import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
@@ -15,6 +19,7 @@ from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import pyarrow.csv as pacsv
 
 
 NULL_SENTINEL = "__null__"
@@ -302,15 +307,147 @@ class CacheEntry:
     created_at: datetime
     expires_at: datetime
     row_count: int
+    page_size: int
     invariants: Mapping[str, tuple[str, ...]]
 
 
+class _BaseAdapter(abc.ABC):
+    """Single-format adapter used by :class:`DataHandle`."""
+
+    format: ClassVar[str]
+
+    @contextlib.contextmanager
+    @abc.abstractmethod
+    def open(self, table: pa.Table):
+        """Yield a file-like view of *table* for the adapter's format."""
+
+
+class _ArrowAdapter(_BaseAdapter):
+    format = "arrow"
+
+    @contextlib.contextmanager
+    def open(self, table: pa.Table):
+        yield table
+
+
+class _ParquetAdapter(_BaseAdapter):
+    format = "parquet"
+
+    @contextlib.contextmanager
+    def open(self, table: pa.Table):
+        sink = pa.BufferOutputStream()
+        pq.write_table(table, sink)
+        buffer = io.BytesIO(sink.getvalue().to_pybytes())
+        try:
+            yield buffer
+        finally:
+            buffer.close()
+
+
+class _CsvAdapter(_BaseAdapter):
+    format = "csv"
+
+    @contextlib.contextmanager
+    def open(self, table: pa.Table):
+        sink = pa.BufferOutputStream()
+        pacsv.write_csv(table, sink)
+        buffer = io.BytesIO(sink.getvalue().to_pybytes())
+        try:
+            yield buffer
+        finally:
+            buffer.close()
+
+
+class _JsonAdapter(_BaseAdapter):
+    format = "json"
+
+    @contextlib.contextmanager
+    def open(self, table: pa.Table):
+        payload = json.dumps(table.to_pylist(), default=str)
+        stream = io.StringIO(payload)
+        try:
+            yield stream
+        finally:
+            stream.close()
+
+
+_ADAPTERS: tuple[_BaseAdapter, ...] = (
+    _ArrowAdapter(),
+    _ParquetAdapter(),
+    _CsvAdapter(),
+    _JsonAdapter(),
+)
+
+SUPPORTED_FORMATS: tuple[str, ...] = tuple(adapter.format for adapter in _ADAPTERS)
+_ADAPTER_BY_FORMAT: Mapping[str, _BaseAdapter] = {adapter.format: adapter for adapter in _ADAPTERS}
+
+
+def _slice_table(table: pa.Table, page_size: int, page: int | None) -> pa.Table:
+    if page is None:
+        return table
+    if page < 0:
+        raise ValueError("Page numbers must be greater than or equal to zero")
+    start = page * page_size
+    if start >= table.num_rows:
+        raise ValueError("Requested page exceeds available rows")
+    length = min(page_size, table.num_rows - start)
+    return table.slice(start, length)
+
+
 @dataclass(frozen=True)
-class CacheResult:
+class DataHandle:
+    """Format-aware accessor for cached query payloads."""
+
+    _table: pa.Table
+    _page_size: int
+
+    def __post_init__(self) -> None:
+        if self._page_size <= 0:
+            raise ValueError("page_size must be greater than zero")
+
+    @property
+    def table(self) -> pa.Table:
+        return self._table
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    @property
+    def row_count(self) -> int:
+        return self._table.num_rows
+
+    @property
+    def page_count(self) -> int:
+        if self.row_count == 0:
+            return 0
+        return math.ceil(self.row_count / self._page_size)
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self._table.schema
+
+    @property
+    def formats(self) -> tuple[str, ...]:
+        return SUPPORTED_FORMATS
+
+    def as_arrow(self, page: int | None = None) -> pa.Table:
+        return _slice_table(self._table, self._page_size, page)
+
+    @contextlib.contextmanager
+    def open(self, format: str, page: int | None = None):
+        adapter = _ADAPTER_BY_FORMAT.get(format)
+        if adapter is None:
+            raise ValueError(f"Unsupported format '{format}'. Expected one of {SUPPORTED_FORMATS}.")
+        with adapter.open(self.as_arrow(page)) as payload:
+            yield payload
+
+
+@dataclass(frozen=True)
+class ResponseEnvelope:
     """Immutable payload returned to callers after cache resolution."""
 
-    table: pa.Table
-    row_count: int
+    data: DataHandle
     from_cache: bool
     from_superset: bool
     entry_digest: str | None
@@ -323,11 +460,43 @@ class CacheResult:
         object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
         object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
-    def to_pylist(self) -> list[dict[str, Any]]:
-        return self.table.to_pylist()
+    @property
+    def row_count(self) -> int:
+        return self.data.row_count
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self.data.schema
+
+    @property
+    def page_size(self) -> int:
+        return self.data.page_size
+
+    @property
+    def page_count(self) -> int:
+        return self.data.page_count
+
+    @property
+    def formats(self) -> tuple[str, ...]:
+        return self.data.formats
+
+    @property
+    def table(self) -> pa.Table:
+        """Return the cached rows as a :class:`pyarrow.Table`."""
+        return self.data.table
+
+    def to_pylist(self, page: int | None = None) -> list[dict[str, Any]]:
+        return self.data.as_arrow(page).to_pylist()
+
+    def as_arrow(self, page: int | None = None) -> pa.Table:
+        return self.data.as_arrow(page)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.table, name)
+
+
+# Backwards-compatible alias for downstream imports.
+CacheResult = ResponseEnvelope
 
 
 class CacheStorage:
@@ -351,12 +520,14 @@ class CacheStorage:
         if _handle_expiry(expires_at, now, on_expire=lambda: self.evict(key)):
             return None
         invariants = _freeze_token_mapping(data.get("invariants", {}))
+        fallback_page_size = max(1, int(data.get("page_size") or data["row_count"] or 1))
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
             row_count=data["row_count"],
+            page_size=fallback_page_size,
             invariants=invariants,
         )
 
@@ -390,6 +561,7 @@ class CacheStorage:
             "created_at": created_at.isoformat(),
             "ttl_seconds": ttl.total_seconds(),
             "row_count": table.num_rows,
+            "page_size": page_size,
             "route_slug": key.route_slug,
             "parameters": list(key.parameters),
             "constants": list(key.constants),
@@ -405,6 +577,7 @@ class CacheStorage:
             created_at=created_at,
             expires_at=expires_at,
             row_count=table.num_rows,
+            page_size=page_size,
             invariants=_freeze_token_mapping(invariant_payload),
         )
 
@@ -448,6 +621,8 @@ class CacheStorage:
         raw_params = {str(k): v for k, v in data.get("raw_parameters", {}).items()}
         raw_consts = {str(k): v for k, v in data.get("raw_constants", {}).items()}
         invariants = data.get("invariants", {})
+        page_size = max(1, int(data.get("page_size") or data.get("row_count", 1) or 1))
+        row_count = int(data.get("row_count", 0))
         key = CacheKey(
             route_slug=data["route_slug"],
             parameters=tuple(tuple(item) for item in data.get("parameters", [])),
@@ -462,7 +637,8 @@ class CacheStorage:
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
-            row_count=data.get("row_count", 0),
+            row_count=row_count,
+            page_size=page_size,
             invariants=key.invariant_tokens,
         )
 
@@ -587,9 +763,9 @@ class Cache:
         from_cache: bool,
         from_superset: bool,
     ) -> CacheResult:
+        data = DataHandle(table, entry.page_size)
         return CacheResult(
-            table=table,
-            row_count=table.num_rows,
+            data=data,
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,

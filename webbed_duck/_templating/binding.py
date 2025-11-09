@@ -459,6 +459,24 @@ def _validate_length_guard(
     ]
 
 
+def _range_violation_messages(
+    name: str, numeric_value: float | int, numeric: Mapping[str, tuple[Any, float | int]]
+) -> list[str]:
+    active = [
+        (label, raw)
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](numeric_value, coerced)
+    ]
+    if not active:
+        return []
+    if {"min", "max"}.issubset(numeric):
+        min_raw, _ = numeric["min"]
+        max_raw, _ = numeric["max"]
+        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
+    label, raw = active[0]
+    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+
+
 def _validate_range_guard(
     name: str,
     value: Any,
@@ -480,19 +498,7 @@ def _validate_range_guard(
     if errors:
         return errors
 
-    active = [
-        (label, raw)
-        for label, (raw, coerced) in numeric.items()
-        if _BOUND_CHECKS[label][0](numeric_value, coerced)
-    ]
-    if not active:
-        return []
-    if {"min", "max"}.issubset(numeric):
-        min_raw, _ = numeric["min"]
-        max_raw, _ = numeric["max"]
-        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
-    label, raw = active[0]
-    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+    return _range_violation_messages(name, numeric_value, numeric)
 
 
 def _validate_datetime_window_guard(
@@ -561,29 +567,11 @@ def _validate_compare_guard(
     if mapping_errors or compare is None:
         return mapping_errors
 
-    target_name = compare.get("parameter")
-    if not isinstance(target_name, str):
-        return [
-            f"Parameter '{name}' compare guard requires a parameter name"
-        ]
-
-    operator_name = compare.get("operator") or "eq"
-    if not isinstance(operator_name, str):
-        return [
-            f"Parameter '{name}' compare guard operator must be a string"
-        ]
-
-    comparator = _COMPARE_OPERATORS.get(operator_name)
-    if comparator is None:
-        return [
-            f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'"
-        ]
-
-    other = resolved.get(target_name)
-    if other is None:
-        return [
-            f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
-        ]
+    error, target_name, comparator, other = _resolve_compare_inputs(
+        name, compare, resolved
+    )
+    if error:
+        return [error]
 
     with suppress(TypeError):
         if comparator.compare(value, other.value):
@@ -600,6 +588,49 @@ def _validate_compare_guard(
         f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
     ]
 
+
+def _resolve_compare_inputs(
+    name: str,
+    compare: Mapping[str, Any],
+    resolved: Mapping[str, "ResolvedParameter"],
+) -> tuple[str | None, str | None, "_CompareOperator" | None, "ResolvedParameter" | None]:
+    target_name = compare.get("parameter")
+    if not isinstance(target_name, str):
+        return (
+            f"Parameter '{name}' compare guard requires a parameter name",
+            None,
+            None,
+            None,
+        )
+
+    operator_name = compare.get("operator") or "eq"
+    if not isinstance(operator_name, str):
+        return (
+            f"Parameter '{name}' compare guard operator must be a string",
+            None,
+            None,
+            None,
+        )
+
+    comparator = _COMPARE_OPERATORS.get(operator_name)
+    if comparator is None:
+        return (
+            f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'",
+            None,
+            None,
+            None,
+        )
+
+    other = resolved.get(target_name)
+    if other is None:
+        return (
+            f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first",
+            target_name,
+            comparator,
+            None,
+        )
+
+    return (None, target_name, comparator, other)
 
 def _as_float(value: Any) -> float | None:
     if isinstance(value, bool):
