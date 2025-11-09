@@ -30,3 +30,9 @@
 - Share Parquet metadata coercion through `_decode_entry_metadata` and tighten cache iteration helpers to cut branches and lines of code.
 - Regenerate complexity reports and metrics to capture the reduced cyclomatic totals and maintainability gains.
 
+## Complexity reduction: guard registry polish and SLOC cuts
+- Replace ad-hoc guard iteration with `_SIMPLE_GUARDS`/`_MAPPING_GUARDS` dispatching, eliminating bespoke wrappers while keeping error messages intact.
+- Inline boolean coercion, datetime boundary formatting, and range preflight checks to drop redundant helpers and cut non-space SLOC.
+- Hoist a reusable `_TemplateParameterNamespace` class so template consumption tracking no longer redefines per-call classes.
+- Refresh complexity reports after the SLOC-focused refactor to document the net reductions.
+
