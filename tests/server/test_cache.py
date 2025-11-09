@@ -11,6 +11,7 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 pa = pytest.importorskip("pyarrow")
+pq = pytest.importorskip("pyarrow.parquet")
 
 from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, InvariantFilter
 
@@ -110,7 +111,29 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert first.from_cache is False
     assert first.from_superset is False
     assert first.entry_digest == key.digest
-    assert first.row_count == table.num_rows
+    assert first.total_rows == table.num_rows
+    assert first.page_count == 3
+    assert first.data.page_count == 3
+    assert first.data.page_size == config.page_size
+    assert first.to_pylist(page=0) == table.slice(0, 2).to_pylist()
+    assert first.to_pylist(page=1) == table.slice(2, 2).to_pylist()
+    assert first.to_pylist(page=2) == table.slice(4, 1).to_pylist()
+
+    with first.data.open("arrow") as arrow_table:
+        assert arrow_table.equals(table)
+
+    with first.data.open("csv", page=1) as csv_stream:
+        csv_payload = csv_stream.read()
+    assert "north" not in csv_payload
+    assert "east" in csv_payload
+
+    with first.data.open("json", page=2) as json_stream:
+        parsed = json.loads(json_stream.read())
+    assert parsed == [table.slice(4, 1).to_pylist()[0]]
+
+    with first.data.open("parquet", page=0) as parquet_stream:
+        parquet_table = pq.read_table(parquet_stream)
+    assert parquet_table.equals(table.slice(0, 2))
     assert dict(first.requested_invariants) == {}
     assert dict(first.cached_invariants) == {}
     assert first.created_at == start_time
@@ -141,7 +164,7 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert third.from_superset is False
     assert third.entry_digest == key.digest
     assert third.created_at == refresh_time
-    assert third.row_count == table.num_rows
+    assert third.total_rows == table.num_rows
 
 
 def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> None:
@@ -189,7 +212,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
     assert result.from_cache is False
     assert result.from_superset is False
     assert result.entry_digest == key.digest
-    assert result.row_count == len(as_rows)
+    assert result.total_rows == len(as_rows)
     assert dict(result.requested_invariants) == {
         "channel": ("email",),
         "segment": (CacheKey.NULL_SENTINEL,),
@@ -202,7 +225,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
     assert again.from_cache is True
     assert again.from_superset is False
     assert again.entry_digest == key.digest
-    assert again.row_count == len(as_rows)
+    assert again.total_rows == len(as_rows)
 
 
 def test_multi_value_invariant_superset_reuse_and_metadata(
@@ -250,7 +273,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     assert superset.from_cache is False
     assert superset.from_superset is False
     assert superset.entry_digest == superset_key.digest
-    assert superset.row_count == len(superset_rows)
+    assert superset.total_rows == len(superset_rows)
     assert dict(superset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca", "us"),
@@ -278,7 +301,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     assert subset.from_cache is True
     assert subset.from_superset is True
     assert subset.entry_digest == superset_key.digest
-    assert subset.row_count == len(subset_rows)
+    assert subset.total_rows == len(subset_rows)
     assert dict(subset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca",),
@@ -301,7 +324,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     assert miss.from_cache is False
     assert miss.from_superset is False
     assert miss.entry_digest == miss_key.digest
-    assert miss.row_count == 2
+    assert miss.total_rows == 2
     assert dict(miss.requested_invariants) == {
         "channel": ("email",),
         "region": ("mx", "us"),
@@ -353,7 +376,7 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     assert result.from_cache is False
     assert result.from_superset is False
     assert result.entry_digest == key.digest
-    assert result.row_count == len(rows_vip)
+    assert result.total_rows == len(rows_vip)
     assert dict(result.requested_invariants) == {"segment": ("vip",)}
     assert dict(result.cached_invariants) == {"segment": ("vip",)}
 
@@ -374,7 +397,7 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     assert again.from_cache is True
     assert again.from_superset is False
     assert again.entry_digest == key.digest
-    assert again.row_count == len(rows_vip)
+    assert again.total_rows == len(rows_vip)
 
 
 def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path) -> None:
@@ -415,6 +438,6 @@ def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path)
     assert result.from_cache is False
     assert result.from_superset is False
     assert result.entry_digest == key.digest
-    assert result.row_count == 1
+    assert result.total_rows == 1
     assert dict(result.requested_invariants) == {"user_id": ("2",)}
     assert dict(result.cached_invariants) == {"user_id": ("2",)}

@@ -5,15 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from functools import reduce
 from datetime import datetime, timedelta, timezone
+from functools import reduce
+import io
+import math
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
+from typing import Any, Callable, ClassVar, ContextManager, Iterable, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 
 
@@ -68,6 +72,22 @@ def _normalize_items(mapping: Mapping[str, Any] | None) -> tuple[tuple[str, str]
             NULL_SENTINEL if (value := mapping[key]) is None else _stringify(value),
         )
         for key in sorted(mapping)
+    )
+
+
+def _normalize_constants(
+    constants: Mapping[str, Any],
+    filters: Mapping[str, InvariantFilter],
+    invariant_tokens: dict[str, tuple[str, ...]],
+) -> tuple[tuple[str, str], ...]:
+    if not constants:
+        return tuple()
+    return tuple(
+        (
+            key,
+            _encode_constant_value(key, constants[key], filters, invariant_tokens),
+        )
+        for key in sorted(constants)
     )
 
 
@@ -262,13 +282,7 @@ class CacheKey:
         normalized_params = _normalize_items(params_copy)
         filters = invariant_filters or {}
         invariant_tokens: dict[str, tuple[str, ...]] = {}
-        normalized_constants_tuple = tuple(
-            (
-                key,
-                _encode_constant_value(key, const_copy[key], filters, invariant_tokens),
-            )
-            for key in sorted(const_copy)
-        )
+        normalized_constants_tuple = _normalize_constants(const_copy, filters, invariant_tokens)
         digest = _compute_digest(route_slug, normalized_params, normalized_constants_tuple)
         return cls(
             route_slug=route_slug,
@@ -305,12 +319,124 @@ class CacheEntry:
     invariants: Mapping[str, tuple[str, ...]]
 
 
-@dataclass(frozen=True)
-class CacheResult:
-    """Immutable payload returned to callers after cache resolution."""
+def _serialize_schema(schema: pa.Schema) -> list[dict[str, str]]:
+    return [
+        {
+            "name": field.name,
+            "type": str(field.type),
+        }
+        for field in schema
+    ]
 
-    table: pa.Table
-    row_count: int
+
+class DataHandle:
+    """Lazy adapter for accessing cached data in multiple formats."""
+
+    def __init__(self, table: pa.Table, *, page_size: int) -> None:
+        self._table = table
+        self._page_size = page_size
+        self._adapters: Mapping[str, Callable[[int | None], ContextManager[Any]]] = {
+            "arrow": self._arrow_adapter,
+            "parquet": self._parquet_adapter,
+            "csv": self._csv_adapter,
+            "json": self._json_adapter,
+        }
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    @property
+    def total_rows(self) -> int:
+        return self._table.num_rows
+
+    @property
+    def page_count(self) -> int:
+        if self.total_rows == 0:
+            return 0
+        return math.ceil(self.total_rows / self._page_size)
+
+    def to_arrow(self, *, page: int | None = None) -> pa.Table:
+        return self._table_for_page(page)
+
+    def to_pylist(self, *, page: int | None = None) -> list[dict[str, Any]]:
+        return self._table_for_page(page).to_pylist()
+
+    @contextmanager
+    def open(self, format: str = "arrow", *, page: int | None = None):
+        normalized = format.lower()
+        adapter = self._adapters.get(normalized)
+        if adapter is None:
+            msg = f"Unsupported format: {format}"
+            raise ValueError(msg)
+        with adapter(page) as payload:
+            yield payload
+
+    def _table_for_page(self, page: int | None) -> pa.Table:
+        if page is None:
+            return self._table
+        if page < 0:
+            msg = "page must be non-negative"
+            raise ValueError(msg)
+        start = page * self._page_size
+        if start >= self.total_rows:
+            return self._table.slice(self.total_rows, 0)
+        length = min(self._page_size, self.total_rows - start)
+        return self._table.slice(start, length)
+
+    def _arrow_adapter(self, page: int | None):
+        @contextmanager
+        def _ctx():
+            yield self._table_for_page(page)
+
+        return _ctx()
+
+    def _parquet_adapter(self, page: int | None):
+        @contextmanager
+        def _ctx():
+            buffer = pa.BufferOutputStream()
+            pq.write_table(self._table_for_page(page), buffer)
+            stream = io.BytesIO(buffer.getvalue().to_pybytes())
+            try:
+                yield stream
+            finally:
+                stream.close()
+
+        return _ctx()
+
+    def _csv_adapter(self, page: int | None):
+        @contextmanager
+        def _ctx():
+            buffer = pa.BufferOutputStream()
+            pacsv.write_csv(self._table_for_page(page), buffer)
+            stream = io.StringIO(buffer.getvalue().to_pybytes().decode("utf-8"))
+            try:
+                yield stream
+            finally:
+                stream.close()
+
+        return _ctx()
+
+    def _json_adapter(self, page: int | None):
+        @contextmanager
+        def _ctx():
+            payload = json.dumps(self.to_pylist(page=page), default=str)
+            stream = io.StringIO(payload)
+            try:
+                yield stream
+            finally:
+                stream.close()
+
+        return _ctx()
+
+
+@dataclass(frozen=True)
+class ResponseEnvelope:
+    """Metadata wrapper describing cached responses independently of format."""
+
+    schema: list[dict[str, str]]
+    total_rows: int
+    page_count: int
     from_cache: bool
     from_superset: bool
     entry_digest: str | None
@@ -318,16 +444,17 @@ class CacheResult:
     cached_invariants: Mapping[str, tuple[str, ...]]
     created_at: datetime | None
     expires_at: datetime | None
+    data: DataHandle
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
         object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
-    def to_pylist(self) -> list[dict[str, Any]]:
-        return self.table.to_pylist()
+    def to_arrow(self, *, page: int | None = None) -> pa.Table:
+        return self.data.to_arrow(page=page)
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.table, name)
+    def to_pylist(self, *, page: int | None = None) -> list[dict[str, Any]]:
+        return self.data.to_pylist(page=page)
 
 
 class CacheStorage:
@@ -484,7 +611,7 @@ class Cache:
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
 
-    def fetch_or_populate(self, key: CacheKey) -> CacheResult:
+    def fetch_or_populate(self, key: CacheKey) -> ResponseEnvelope:
         now = self._clock()
         entry = self._storage.load_entry(key, now)
         if entry is not None:
@@ -586,10 +713,12 @@ class Cache:
         entry: CacheEntry,
         from_cache: bool,
         from_superset: bool,
-    ) -> CacheResult:
-        return CacheResult(
-            table=table,
-            row_count=table.num_rows,
+    ) -> ResponseEnvelope:
+        handle = DataHandle(table, page_size=self._config.page_size)
+        return ResponseEnvelope(
+            schema=_serialize_schema(table.schema),
+            total_rows=table.num_rows,
+            page_count=handle.page_count,
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,
@@ -597,6 +726,7 @@ class Cache:
             cached_invariants=entry.invariants,
             created_at=entry.created_at,
             expires_at=entry.expires_at,
+            data=handle,
         )
 
     def _find_superset_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
