@@ -26,6 +26,8 @@ The cache integration tests in `tests/server/test_cache.py` outline the expected
 - Storage is rooted at the configured path, making it trivial to sandbox cache IO in temporary directories during tests.
 
 ## Result metadata contract
-- `Cache.fetch_or_populate` returns an immutable `CacheResult` wrapper that preserves Arrow ergonomics (`to_pylist`, column access) while exposing cache metadata (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
-- Callers can observe whether data came from disk or a fresh run via `from_cache` and `from_superset`, along with the serving entry digest and filtered row counts (`test_multi_value_invariant_superset_reuse_and_metadata`).
+- `Cache.fetch_or_populate` returns an immutable `ResponseEnvelope` (also exported as `CacheResult`) that pairs cache metadata with a `DataHandle` for the underlying rows (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
+- The handle exposes page-aware accessors and a format negotiation API so clients can opt into Arrow tables, Parquet bytes, CSV streams, or JSON arrays (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
+- Page selectors are zero-indexed, so `page=0` yields the first chunk and `page=1` advances to the second (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
+- Callers can observe whether data came from disk or a fresh run via `from_cache` and `from_superset`, along with the serving entry digest, filtered row counts, and declared page sizing (`test_multi_value_invariant_superset_reuse_and_metadata`).
 - Requested invariant tokens and the backing cache entry's invariant set are surfaced as read-only mappings so routing layers can reason about superset reuse without touching on-disk JSON (`test_invariant_filters_and_null_semantics`, `test_case_insensitive_invariant_tokens`, `test_numeric_invariant_tokens_apply_column_type`).
