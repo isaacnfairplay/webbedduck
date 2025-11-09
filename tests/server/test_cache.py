@@ -111,10 +111,30 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert first.from_superset is False
     assert first.entry_digest == key.digest
     assert first.row_count == table.num_rows
+    assert first.page_size == config.page_size
+    assert first.page_count == 3
+    assert set(first.formats) == {"arrow", "parquet", "csv", "json"}
     assert dict(first.requested_invariants) == {}
     assert dict(first.cached_invariants) == {}
     assert first.created_at == start_time
     assert first.expires_at == start_time + config.ttl
+
+    with first.data.open("arrow") as arrow_view:
+        assert arrow_view.equals(table)
+    assert first.table.equals(table)
+
+    with first.open("arrow", page=1) as page_two:
+        assert page_two.num_rows == 2
+        assert [row["id"] for row in page_two.to_pylist()] == [3, 4]
+    with first.open("json", page=0) as json_stream:
+        first_page = json.loads(json_stream.read())
+        assert [row["id"] for row in first_page] == [1, 2]
+    with first.data.open("csv", page=2) as csv_stream:
+        csv_payload = csv_stream.read().decode()
+        assert "central" in csv_payload
+    with first.open("parquet") as parquet_stream:
+        parquet_bytes = parquet_stream.read()
+        assert isinstance(parquet_bytes, (bytes, bytearray))
 
     entry_dir = tmp_cache_dir / key.digest
     assert entry_dir.exists()
@@ -122,6 +142,7 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert len(pages) == 3  # ceil(5 rows / 2 page size)
     metadata = json.loads((entry_dir / "metadata.json").read_text())
     assert metadata["row_count"] == 5
+    assert metadata["page_size"] == config.page_size
 
     second = cache.fetch_or_populate(key)
     assert second.to_pylist() == table.to_pylist()
