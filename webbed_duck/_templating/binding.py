@@ -459,6 +459,24 @@ def _validate_length_guard(
     ]
 
 
+def _range_violation_messages(
+    name: str, numeric_value: float | int, numeric: Mapping[str, tuple[Any, float | int]]
+) -> list[str]:
+    active = [
+        (label, raw)
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](numeric_value, coerced)
+    ]
+    if not active:
+        return []
+    if {"min", "max"}.issubset(numeric):
+        min_raw, _ = numeric["min"]
+        max_raw, _ = numeric["max"]
+        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
+    label, raw = active[0]
+    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+
+
 def _validate_range_guard(
     name: str,
     value: Any,
@@ -480,19 +498,7 @@ def _validate_range_guard(
     if errors:
         return errors
 
-    active = [
-        (label, raw)
-        for label, (raw, coerced) in numeric.items()
-        if _BOUND_CHECKS[label][0](numeric_value, coerced)
-    ]
-    if not active:
-        return []
-    if {"min", "max"}.issubset(numeric):
-        min_raw, _ = numeric["min"]
-        max_raw, _ = numeric["max"]
-        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
-    label, raw = active[0]
-    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+    return _range_violation_messages(name, numeric_value, numeric)
 
 
 def _validate_datetime_window_guard(
@@ -551,6 +557,52 @@ def _validate_datetime_window_guard(
     ]
 
 
+def _resolve_compare_dependencies(
+    name: str,
+    compare: Mapping[str, Any],
+    resolved: Mapping[str, "ResolvedParameter"],
+) -> tuple[_CompareOperator | None, "ResolvedParameter" | None, str | None, list[str]]:
+    target_name = compare.get("parameter")
+    if not isinstance(target_name, str):
+        return None, None, None, [
+            f"Parameter '{name}' compare guard requires a parameter name"
+        ]
+
+    operator_name = compare.get("operator", "eq")
+    if not isinstance(operator_name, str):
+        return None, None, target_name, [
+            f"Parameter '{name}' compare guard operator must be a string"
+        ]
+
+    comparator = _COMPARE_OPERATORS.get(operator_name)
+    if comparator is None:
+        return None, None, target_name, [
+            f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'"
+        ]
+
+    other = resolved.get(target_name)
+    if other is None:
+        return None, None, target_name, [
+            f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
+        ]
+
+    return comparator, other, target_name, []
+
+
+def _compare_guard_message(
+    name: str,
+    target_name: str,
+    compare: Mapping[str, Any],
+    comparator: _CompareOperator,
+) -> str:
+    message = compare.get("message")
+    if isinstance(message, str):
+        return message
+    if message is None:
+        return comparator.message(name, target_name)
+    return str(message)
+
+
 def _validate_compare_guard(
     name: str,
     value: Any,
@@ -561,40 +613,20 @@ def _validate_compare_guard(
     if mapping_errors or compare is None:
         return mapping_errors
 
-    target_name = compare.get("parameter")
-    if not isinstance(target_name, str):
-        return [
-            f"Parameter '{name}' compare guard requires a parameter name"
-        ]
-
-    operator_name = compare.get("operator") or "eq"
-    if not isinstance(operator_name, str):
-        return [
-            f"Parameter '{name}' compare guard operator must be a string"
-        ]
-
-    comparator = _COMPARE_OPERATORS.get(operator_name)
-    if comparator is None:
-        return [
-            f"Parameter '{name}' compare guard uses unsupported operator '{operator_name}'"
-        ]
-
-    other = resolved.get(target_name)
-    if other is None:
-        return [
-            f"Parameter '{name}' compare guard requires parameter '{target_name}' to be resolved first"
-        ]
+    comparator, other, target_name, dependency_errors = _resolve_compare_dependencies(
+        name, compare, resolved
+    )
+    if dependency_errors:
+        return dependency_errors
+    assert comparator is not None and other is not None and target_name is not None
 
     with suppress(TypeError):
         if comparator.compare(value, other.value):
             return []
 
-        message = compare.get("message")
-        if isinstance(message, str):
-            return [message]
-        if message is None:
-            return [comparator.message(name, target_name)]
-        return [str(message)]
+        return [
+            _compare_guard_message(name, target_name, compare, comparator)
+        ]
 
     return [
         f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
