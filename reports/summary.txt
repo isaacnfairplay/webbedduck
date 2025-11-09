@@ -1,31 +1,31 @@
 Complexity Reduction Summary (Auto-Generated)
 ────────────────────────────────────────────────────────────
-Files changed: 1
-Functions modified: 126
-Non-space SLOC: 1935 → 1924  (Δ -11)
-Function count: 183 → 183
-Expression count: 6603 → 6590
+Files changed: 2
+Functions modified: 192
+Non-space SLOC: 1924 → 1920  (Δ -4)
+Function count: 183 → 185
+Expression count: 6590 → 6617
 
 Radon Cyclomatic Complexity:
-  Total:   539 → 533  (Δ -6)
-  Average: 2.95 → 2.91
+  Total:   533 → 511  (Δ -22)
+  Average: 2.91 → 2.76
 
 Maintainability Index (avg):
-  64.05 → 64.05
+  64.05 → 64.33
 
 Halstead Bug Estimate:
-  Overall: 1.41 → 1.38
+  Overall: 1.38 → 1.33
   Notable modules:
-    webbed_duck/server/cache.py: 0.75 → 0.71
+    webbed_duck/_templating/binding.py: 0.52 → 0.49
+    webbed_duck/server/cache.py: 0.71 → 0.70
     scripts/generate_template_docs.py: 0.01 → 0.01
     webbed_duck/__init__.py: 0 → 0
     webbed_duck/_templating/__init__.py: 0 → 0
-    webbed_duck/_templating/binding.py: 0.52 → 0.52
 
 Generalized Refactor Patterns Applied:
-  - Text adapter context reuse in webbed_duck/server/cache.py (3 sites)
-  - Unified streaming chunk generators via partial JSON payload dispatch in webbed_duck/server/cache.py (2 sites)
+  - Guard mapping dispatcher reused across length, range, datetime, and compare validators (4 sites)
+  - Metadata decode helper shared by cache loading and metadata scanning plus streamlined IO loops (4 sites)
 
 Validation:
-  - Tests passing: auto
+  - Tests passing: pytest
   - Behavioral diff: none observed (snapshot/contract tests unchanged)

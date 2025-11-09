@@ -24,3 +24,9 @@
 - Restructure `_IterTextIO.read` to use deterministic buffering loops, lowering cyclomatic complexity while preserving behaviour.
 - Teach the complexity workflow to refresh comments in place and annotate reports with applied refactor patterns.
 
+## Complexity reduction: guard helpers and metadata decoding
+- Introduce `_apply_guard_mapping` to centralise guard retrieval, trimming branch-heavy validators for length, range, datetime, and compare guards.
+- Streamline choice and regex guards with concise truthiness checks while preserving existing error messages.
+- Share Parquet metadata coercion through `_decode_entry_metadata` and tighten cache iteration helpers to cut branches and lines of code.
+- Regenerate complexity reports and metrics to capture the reduced cyclomatic totals and maintainability gains.
+

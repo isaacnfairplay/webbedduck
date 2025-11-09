@@ -75,6 +75,18 @@ def _normalize_items(mapping: Mapping[str, Any] | None) -> tuple[tuple[str, str]
     )
 
 
+def _decode_entry_metadata(
+    data: Mapping[str, Any]
+) -> tuple[datetime, datetime, Mapping[str, tuple[str, ...]], int, int]:
+    created_at = datetime.fromisoformat(data["created_at"])
+    expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
+    invariants = _freeze_token_mapping(dict(data.get("invariants") or {}))
+    page_source = data.get("page_size") or data.get("row_count", 1) or 1
+    page_size = max(1, int(page_source))
+    row_count = int(data.get("row_count", 0))
+    return created_at, expires_at, invariants, page_size, row_count
+
+
 def _ensure_sequence(value: Any) -> Sequence[Any]:
     if value is None:
         return ()
@@ -651,19 +663,18 @@ class CacheStorage:
         if not metadata_path.exists():
             return None
         data = json.loads(metadata_path.read_text())
-        created_at = datetime.fromisoformat(data["created_at"])
-        expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
+        created_at, expires_at, invariants, page_size, row_count = _decode_entry_metadata(
+            data
+        )
         if _handle_expiry(expires_at, now, on_expire=lambda: self.evict(key)):
             return None
-        invariants = _freeze_token_mapping(data.get("invariants", {}))
-        fallback_page_size = max(1, int(data.get("page_size") or data["row_count"] or 1))
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
-            row_count=data["row_count"],
-            page_size=fallback_page_size,
+            row_count=row_count,
+            page_size=page_size,
             invariants=invariants,
         )
 
@@ -718,29 +729,20 @@ class CacheStorage:
         )
 
     def read_entry(self, entry: CacheEntry) -> pa.Table:
-        pages = sorted(entry.path.glob("page-*.parquet"))
-        tables = [pq.read_table(page) for page in pages]
+        tables = [pq.read_table(page) for page in sorted(entry.path.glob("page-*.parquet"))]
         if not tables:
             return pa.table({})
-        if len(tables) == 1:
-            return tables[0]
-        return pa.concat_tables(tables)
+        return tables[0] if len(tables) == 1 else pa.concat_tables(tables)
 
     def evict(self, key: CacheKey) -> None:
-        entry_dir = self._entry_dir(key)
-        if entry_dir.exists():
+        if (entry_dir := self._entry_dir(key)).exists():
             shutil.rmtree(entry_dir)
 
     def scan_entries(self, *, route_slug: str, now: datetime) -> list[CacheEntry]:
         return [
             entry
             for metadata_path in self._root.glob("*/metadata.json")
-            if (
-                entry := self._entry_from_metadata(
-                    metadata_path, route_slug=route_slug, now=now
-                )
-            )
-            is not None
+            if (entry := self._entry_from_metadata(metadata_path, route_slug=route_slug, now=now))
         ]
 
     def _entry_from_metadata(
@@ -748,25 +750,21 @@ class CacheStorage:
     ) -> CacheEntry | None:
         entry_dir = metadata_path.parent
         data = json.loads(metadata_path.read_text())
-        created_at = datetime.fromisoformat(data["created_at"])
-        expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
-        if data.get("route_slug") != route_slug or _handle_expiry(
-            expires_at, now, on_expire=lambda: shutil.rmtree(entry_dir)
-        ):
+        created_at, expires_at, invariants, page_size, row_count = _decode_entry_metadata(
+            data
+        )
+        if data.get("route_slug") != route_slug:
             return None
-        raw_params = {str(k): v for k, v in data.get("raw_parameters", {}).items()}
-        raw_consts = {str(k): v for k, v in data.get("raw_constants", {}).items()}
-        invariants = data.get("invariants", {})
-        page_size = max(1, int(data.get("page_size") or data.get("row_count", 1) or 1))
-        row_count = int(data.get("row_count", 0))
+        if _handle_expiry(expires_at, now, on_expire=lambda: shutil.rmtree(entry_dir)):
+            return None
         key = CacheKey(
             route_slug=data["route_slug"],
             parameters=tuple(tuple(item) for item in data.get("parameters", [])),
             constants=tuple(tuple(item) for item in data.get("constants", [])),
             digest=entry_dir.name,
-            _raw_parameters=_freeze_str_mapping(raw_params),
-            _raw_constants=_freeze_str_mapping(raw_consts),
-            _invariant_tokens=_freeze_token_mapping(invariants),
+            _raw_parameters=_freeze_str_mapping(dict(data.get("raw_parameters") or {})),
+            _raw_constants=_freeze_str_mapping(dict(data.get("raw_constants") or {})),
+            _invariant_tokens=invariants,
         )
         return CacheEntry(
             key=key,
@@ -775,7 +773,7 @@ class CacheStorage:
             expires_at=expires_at,
             row_count=row_count,
             page_size=page_size,
-            invariants=key.invariant_tokens,
+            invariants=invariants,
         )
 
 
