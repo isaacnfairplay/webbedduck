@@ -600,29 +600,22 @@ class ResponseEnvelope:
     created_at: datetime | None
     expires_at: datetime | None
 
+    _DELEGATED: ClassVar[tuple[str, ...]] = (
+        "row_count",
+        "schema",
+        "page_size",
+        "page_count",
+        "formats",
+    )
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
         object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
-    @property
-    def row_count(self) -> int:
-        return self.data.row_count
-
-    @property
-    def schema(self) -> pa.Schema:
-        return self.data.schema
-
-    @property
-    def page_size(self) -> int:
-        return self.data.page_size
-
-    @property
-    def page_count(self) -> int:
-        return self.data.page_count
-
-    @property
-    def formats(self) -> tuple[str, ...]:
-        return self.data.formats
+    def __getattr__(self, name: str) -> Any:
+        if name in self._DELEGATED:
+            return getattr(self.data, name)
+        raise AttributeError(name)
 
     @property
     def table(self) -> pa.Table:

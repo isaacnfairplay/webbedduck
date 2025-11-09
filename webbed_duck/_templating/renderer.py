@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, Callable, Dict, Mapping
+from typing import Any, Callable, ClassVar, Dict, Mapping
 
 from .errors import TemplateApplicationError
 from .formatters import (
@@ -23,6 +23,12 @@ class TemplateRenderer:
     """Render ``{{ ctx.* }}`` expressions against a request context."""
 
     _placeholder = re.compile(r"{{\s*(.*?)\s*}}")
+    _FORMATTER_CONFIG: ClassVar[dict[str, tuple[str, Callable[[Any, str, Mapping[str, Any]], Any], str]]] = {
+        "date_format": ("iso", _format_date, "date_formats"),
+        "timestamp_format": ("iso", _format_timestamp, "timestamp_formats"),
+        "number_format": ("decimal", _format_number, "number_formats"),
+    }
+
 
     def __init__(self, request_context: Mapping[str, Any]):
         self._prepared = prepare_context(request_context)
@@ -33,9 +39,6 @@ class TemplateRenderer:
         self._modifier_handlers: Dict[str, Callable[[Any, list[Any], dict[str, Any]], Any]] = {
             "coalesce": self._handle_coalesce,
             "date_offset": self._handle_date_offset,
-            "date_format": self._handle_date_format,
-            "timestamp_format": self._handle_timestamp_format,
-            "number_format": self._handle_number_format,
         }
 
     def render(self, template: str) -> str:
@@ -119,9 +122,16 @@ class TemplateRenderer:
         kwargs = {kw.arg: self._literal_eval(kw.value) for kw in call.keywords}
 
         handler = self._modifier_handlers.get(func_name)
-        if handler is None:
-            raise TemplateApplicationError(f"Unknown modifier '{func_name}'")
-        return handler(value, args, kwargs)
+        if handler is not None:
+            return handler(value, args, kwargs)
+
+        if config := self._FORMATTER_CONFIG.get(func_name):
+            default, formatter, attribute = config
+            format_key = args[0] if args else kwargs.get("format_key", default)
+            formats = getattr(self._prepared, attribute)
+            return formatter(value, format_key, formats)
+
+        raise TemplateApplicationError(f"Unknown modifier '{func_name}'")
 
     def _handle_coalesce(
         self, value: Any, args: list[Any], kwargs: dict[str, Any]
@@ -133,24 +143,6 @@ class TemplateRenderer:
         self, value: Any, args: list[Any], kwargs: dict[str, Any]
     ) -> Any:
         return _date_offset(value, **kwargs)
-
-    def _handle_date_format(
-        self, value: Any, args: list[Any], kwargs: dict[str, Any]
-    ) -> Any:
-        format_key = args[0] if args else kwargs.get("format_key", "iso")
-        return _format_date(value, format_key, self._prepared.date_formats)
-
-    def _handle_timestamp_format(
-        self, value: Any, args: list[Any], kwargs: dict[str, Any]
-    ) -> Any:
-        format_key = args[0] if args else kwargs.get("format_key", "iso")
-        return _format_timestamp(value, format_key, self._prepared.timestamp_formats)
-
-    def _handle_number_format(
-        self, value: Any, args: list[Any], kwargs: dict[str, Any]
-    ) -> Any:
-        format_key = args[0] if args else kwargs.get("format_key", "decimal")
-        return _format_number(value, format_key, self._prepared.number_formats)
 
     def _literal_eval(self, node: ast.AST) -> Any:
         try:

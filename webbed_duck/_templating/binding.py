@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping as MappingABC
 from contextlib import suppress
 import datetime as _dt
 import operator
@@ -11,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping
 
 from .errors import TemplateApplicationError
+from .state import StringNamespace
 
 __all__ = [
     "ParameterBindingError",
@@ -113,6 +115,10 @@ class ResolvedParameter:
     spec: ParameterSpec | None
 
 
+
+
+
+
 class ParameterContext(Mapping[str, ResolvedParameter]):
     """Read-only view over validated parameters."""
 
@@ -170,15 +176,14 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
         consumed_keys: set[str] = set()
 
         for name, spec in context.specs.items():
-            if (raw_value := provided.get(name, _MISSING)) is _MISSING:
-                if spec.default is not _MISSING:
-                    raw_value = spec.default
-                    provenance = "default"
-                elif spec.required:
-                    errors.append(f"Parameter '{name}' is required")
+            raw_value = provided.get(name, _MISSING)
+            if raw_value is _MISSING:
+                if spec.default is _MISSING:
+                    if spec.required:
+                        errors.append(f"Parameter '{name}' is required")
                     continue
-                else:
-                    continue
+                raw_value = spec.default
+                provenance = "default"
             else:
                 consumed_keys.add(name)
                 provenance = "provided"
@@ -189,7 +194,8 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                 errors.append(str(exc))
                 continue
 
-            if guard_errors := _run_guards(name, value, spec.guards, resolved):
+            guard_errors = _run_guards(name, value, spec.guards, resolved)
+            if guard_errors:
                 errors.extend(guard_errors)
                 continue
 
@@ -228,31 +234,13 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
 
     def for_template(self) -> Mapping[str, Any]:
         if self._template_view is None:
-            from .state import StringNamespace
-
             data: Dict[str, Any] = {
                 name: resolved.value
                 for name, resolved in self._parameters.items()
                 if resolved.allow_template
             }
 
-            context = self
-
-            class TemplateParameterNamespace(StringNamespace):
-                def __getitem__(self, key: str) -> Any:  # type: ignore[override]
-                    value = super().__getitem__(key)
-                    context._template_consumed.add(key)
-                    return value
-
-                def get(self, key: str, default: Any = None) -> Any:  # type: ignore[override]
-                    if key in self:
-                        return self[key]
-                    return default
-
-                def __contains__(self, key: object) -> bool:  # type: ignore[override]
-                    return dict.__contains__(self, key)
-
-            self._template_view = TemplateParameterNamespace(data, data.keys())
+            self._template_view = _TemplateParameterNamespace(self, data)
         return self._template_view
 
     def for_binding(self, *, used_names: Iterable[str] | None = None) -> Dict[str, Any]:
@@ -270,6 +258,22 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
         return set(self._template_consumed)
 
 
+class _TemplateParameterNamespace(StringNamespace):
+    __slots__ = ("_context",)
+
+    def __init__(self, context: "ParameterContext", data: Mapping[str, Any]) -> None:
+        super().__init__(data, data.keys())
+        self._context = context
+
+    def __getitem__(self, key: str) -> Any:  # type: ignore[override]
+        value = super().__getitem__(key)
+        self._context._template_consumed.add(key)
+        return value
+
+    def get(self, key: str, default: Any = None) -> Any:  # type: ignore[override]
+        return self[key] if key in self else default
+
+
 def _collect_unknown_parameters(
     provided: Mapping[str, Any],
     consumed_keys: set[str],
@@ -279,12 +283,9 @@ def _collect_unknown_parameters(
         return {}, []
     if not allow_unknown:
         ordered = sorted(unknown_keys)
-        message = (
-            f"Unknown parameter '{ordered[0]}'"
-            if len(ordered) == 1
-            else "Unknown parameters: " + ", ".join(ordered)
-        )
-        return {}, [message]
+        if len(ordered) == 1:
+            return {}, [f"Unknown parameter '{ordered[0]}'"]
+        return {}, ["Unknown parameters: " + ", ".join(ordered)]
     return {key: provided[key] for key in unknown_keys}, []
 
 
@@ -292,12 +293,21 @@ def _coerce_value(name: str, type_name: str, value: Any) -> Any:
     if type_name == "string":
         return value if isinstance(value, str) else str(value)
     if type_name == "boolean":
-        try:
-            return _coerce_boolean(value)
-        except ValueError as exc:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            if value in (0, 1):
+                return bool(value)
             raise ParameterBindingError(
                 f"Parameter '{name}' must be a boolean"
-            ) from exc
+            )
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        raise ParameterBindingError(f"Parameter '{name}' must be a boolean")
 
     converter = _NUMERIC_CONVERTERS.get(type_name)
     if converter is None:
@@ -314,20 +324,87 @@ def _coerce_value(name: str, type_name: str, value: Any) -> Any:
         ) from exc
 
 
-def _coerce_boolean(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        if value in (0, 1):
-            return bool(value)
-        raise ValueError("Boolean numeric coercion expects 0 or 1")
-    if isinstance(value, str):
-        match value.strip().lower():
-            case "true" | "1" | "yes" | "on":
-                return True
-            case "false" | "0" | "no" | "off":
-                return False
-    raise ValueError("Cannot coerce value to boolean")
+
+
+_GuardPredicate = Callable[[Any], bool] | type | tuple[type, ...]
+
+
+def _guard_option(
+    name: str,
+    guards: Mapping[str, Any],
+    key: str,
+    *,
+    predicate: _GuardPredicate | None = None,
+    type_label: str,
+    transform: Callable[[Any], Any] | None = None,
+) -> tuple[Any | None, list[str]]:
+    value = guards.get(key)
+    if value is None:
+        return None, []
+    if predicate is not None:
+        check = (
+            isinstance(value, predicate)
+            if isinstance(predicate, (tuple, type))
+            else predicate(value)
+        )
+        if not check:
+            return None, [f"Parameter '{name}' {key} guard must be {type_label}"]
+    return (transform(value) if transform else value), []
+
+
+_SIMPLE_GUARDS: Mapping[
+    str,
+    tuple[
+        _GuardPredicate | None,
+        str,
+        Callable[[Any], Any] | None,
+        Callable[[str, Any, Any], Iterable[str]],
+    ],
+] = {
+    "choices": (
+        lambda candidate: isinstance(candidate, Iterable)
+        and not isinstance(candidate, (str, bytes)),
+        "iterable",
+        list,
+        lambda name, current, options: []
+        if current in options
+        else [f"Parameter '{name}' must be one of: {', '.join(map(str, options))}"],
+    ),
+    "regex": (
+        str,
+        "a string pattern",
+        None,
+        lambda name, current, pattern: (
+            [f"Parameter '{name}' must be a string to apply regex guard"]
+            if not isinstance(current, str)
+            else (
+                []
+                if re.fullmatch(pattern, current)
+                else [f"Parameter '{name}' must match pattern '{pattern}'"]
+            )
+        ),
+    ),
+}
+
+
+def _iter_simple_guard_errors(
+    name: str, value: Any, guards: Mapping[str, Any]
+) -> Iterable[str]:
+    for key, (predicate, type_label, transform, validator) in _SIMPLE_GUARDS.items():
+        option, type_errors = _guard_option(
+            name,
+            guards,
+            key,
+            predicate=predicate,
+            type_label=type_label,
+            transform=transform,
+        )
+        if type_errors:
+            yield from type_errors
+        elif option is not None:
+            yield from validator(name, value, option)
+
+
 
 
 def _run_guards(
@@ -339,77 +416,20 @@ def _run_guards(
     if not guards:
         return []
 
-    validators = (
-        _validate_choices_guard,
-        _validate_regex_guard,
-        _validate_length_guard,
-        _validate_range_guard,
-        _validate_datetime_window_guard,
-        _validate_compare_guard,
-    )
-    return [
-        error
-        for validator in validators
-        for error in validator(name, value, guards, resolved)
-    ]
-
-
-def _validate_choices_guard(
-    name: str,
-    value: Any,
-    guards: Mapping[str, Any],
-    _resolved: Mapping[str, "ResolvedParameter"],
-) -> list[str]:
-    choices = guards.get("choices")
-    if choices is None:
-        return []
-    if not isinstance(choices, Iterable) or isinstance(choices, str):
-        return [f"Parameter '{name}' choices guard must be iterable"]
-    values = list(choices)
-    return [] if value in values else [
-        f"Parameter '{name}' must be one of: {', '.join(map(str, values))}"
-    ]
-
-
-def _validate_regex_guard(
-    name: str,
-    value: Any,
-    guards: Mapping[str, Any],
-    _resolved: Mapping[str, "ResolvedParameter"],
-) -> list[str]:
-    pattern = guards.get("regex")
-    if pattern is None:
-        return []
-    if not isinstance(pattern, str):
-        return [f"Parameter '{name}' regex guard must be a string pattern"]
-    if not isinstance(value, str):
-        return [f"Parameter '{name}' must be a string to apply regex guard"]
-    return [] if re.fullmatch(pattern, value) else [
-        f"Parameter '{name}' must match pattern '{pattern}'"
-    ]
-
-
-def _guard_mapping(
-    guards: Mapping[str, Any], key: str, name: str
-) -> tuple[Mapping[str, Any] | None, list[str]]:
-    mapping = guards.get(key)
-    if mapping is None:
-        return None, []
-    if isinstance(mapping, Mapping):
-        return mapping, []
-    return None, [f"Parameter '{name}' {key} guard must be a mapping"]
-
-
-def _apply_guard_mapping(
-    name: str,
-    guards: Mapping[str, Any],
-    key: str,
-    handler: Callable[[Mapping[str, Any]], list[str]],
-) -> list[str]:
-    mapping, errors = _guard_mapping(guards, key, name)
-    if errors or mapping is None:
-        return errors
-    return handler(mapping)
+    errors = list(_iter_simple_guard_errors(name, value, guards))
+    for key, handler in _MAPPING_GUARDS.items():
+        mapping, type_errors = _guard_option(
+            name,
+            guards,
+            key,
+            predicate=MappingABC,
+            type_label="a mapping",
+        )
+        if type_errors:
+            errors.extend(type_errors)
+        elif mapping is not None:
+            errors.extend(handler(name, value, mapping, resolved))
+    return errors
 
 
 _BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
@@ -448,23 +468,20 @@ def _coerce_guard_values(
 def _validate_length_guard(
     name: str,
     value: Any,
-    guards: Mapping[str, Any],
+    bounds: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    def handle(bounds: Mapping[str, Any]) -> list[str]:
-        try:
-            length = len(value)  # type: ignore[arg-type]
-        except TypeError:
-            return [f"Parameter '{name}' length guard requires a sized value"]
+    try:
+        length = len(value)  # type: ignore[arg-type]
+    except TypeError:
+        return [f"Parameter '{name}' length guard requires a sized value"]
 
-        numeric, errors = _coerce_guard_values(name, "length", bounds, _as_int)
-        return errors or [
-            f"Parameter '{name}' length must be {_BOUND_CHECKS[label][1]} {raw}"
-            for label, (raw, coerced) in numeric.items()
-            if _BOUND_CHECKS[label][0](length, coerced)
-        ]
-
-    return _apply_guard_mapping(name, guards, "length", handle)
+    numeric, errors = _coerce_guard_values(name, "length", bounds, _as_int)
+    return errors or [
+        f"Parameter '{name}' length must be {_BOUND_CHECKS[label][1]} {raw}"
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](length, coerced)
+    ]
 
 
 def _range_violation_messages(
@@ -485,85 +502,76 @@ def _range_violation_messages(
     return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
 
 
-def _range_guard_preflight(
-    name: str, bounds: Mapping[str, Any], value: Any
-) -> tuple[float | int | None, list[str]]:
-    if not any(bounds.get(label) is not None for label in ("min", "max")):
-        return None, [f"Parameter '{name}' range guard requires 'min' or 'max'"]
-    numeric_value = _as_float(value)
-    if numeric_value is None:
-        return None, [f"Parameter '{name}' must be numeric to apply range guard"]
-    return numeric_value, []
-
-
 def _validate_range_guard(
     name: str,
     value: Any,
-    guards: Mapping[str, Any],
+    bounds: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    def handle(bounds: Mapping[str, Any]) -> list[str]:
-        numeric_value, errors = _range_guard_preflight(name, bounds, value)
-        if errors:
-            return errors
+    if not any(bounds.get(label) is not None for label in ("min", "max")):
+        return [f"Parameter '{name}' range guard requires 'min' or 'max'"]
+    numeric_value = _as_float(value)
+    if numeric_value is None:
+        return [f"Parameter '{name}' must be numeric to apply range guard"]
 
-        numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
-        return errors or _range_violation_messages(name, numeric_value, numeric)
-
-    return _apply_guard_mapping(name, guards, "range", handle)
+    numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
+    return errors or _range_violation_messages(name, numeric_value, numeric)
 
 
 def _validate_datetime_window_guard(
     name: str,
     value: Any,
-    guards: Mapping[str, Any],
+    window: Mapping[str, Any],
     _resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    def handle(window: Mapping[str, Any]) -> list[str]:
-        earliest = window.get("earliest")
-        latest = window.get("latest")
-        if earliest is None and latest is None:
-            return [
-                f"Parameter '{name}' datetime_window guard requires 'earliest' or 'latest'"
-            ]
-
-        value_dt, value_error = _parse_datetime_for_guard(
-            value, name, for_value=True
-        )
-        if value_error is not None:
-            return [value_error]
-
-        def _check_boundary(
-            label: str,
-            raw_boundary: Any,
-            comparator: Callable[[Any, Any], bool],
-            descriptor: str,
-        ) -> str | None:
-            if raw_boundary is None:
-                return None
-            boundary_dt, boundary_error = _parse_datetime_for_guard(
-                raw_boundary, name, boundary=label
-            )
-            if boundary_error is not None:
-                return boundary_error
-            if value_dt is None or boundary_dt is None:
-                return None
-            if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
-                return f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
-            if comparator(value_dt, boundary_dt):
-                return f"Parameter '{name}' must not be {descriptor} {_format_datetime_boundary(raw_boundary)}"
-            return None
-
+    earliest = window.get("earliest")
+    latest = window.get("latest")
+    if earliest is None and latest is None:
         return [
-            error
-            for error in (
-                _check_boundary("earliest", earliest, operator.lt, "earlier than"),
-                _check_boundary("latest", latest, operator.gt, "later than"),
-            )
-            if error is not None
+            f"Parameter '{name}' datetime_window guard requires 'earliest' or 'latest'",
         ]
 
-    return _apply_guard_mapping(name, guards, "datetime_window", handle)
+    value_dt, value_error = _parse_datetime_for_guard(value, name, for_value=True)
+    if value_error is not None:
+        return [value_error]
+
+    def _check_boundary(
+        label: str,
+        raw_boundary: Any,
+        comparator: Callable[[Any, Any], bool],
+        descriptor: str,
+    ) -> str | None:
+        if raw_boundary is None:
+            return None
+        boundary_dt, boundary_error = _parse_datetime_for_guard(
+            raw_boundary, name, boundary=label
+        )
+        if boundary_error is not None:
+            return boundary_error
+        if value_dt is None or boundary_dt is None:
+            return None
+        if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
+            return (
+                f"Parameter '{name}' datetime_window guard requires value and {label} boundary "
+                "to use the same timezone awareness"
+            )
+        if comparator(value_dt, boundary_dt):
+            formatted = (
+                raw_boundary.isoformat()
+                if isinstance(raw_boundary, _dt.datetime)
+                else str(raw_boundary)
+            )
+            return f"Parameter '{name}' must not be {descriptor} {formatted}"
+        return None
+
+    return [
+        error
+        for error in (
+            _check_boundary("earliest", earliest, operator.lt, "earlier than"),
+            _check_boundary("latest", latest, operator.gt, "later than"),
+        )
+        if error is not None
+    ]
 
 
 def _resolve_compare_configuration(
@@ -617,33 +625,41 @@ def _resolve_compare_configuration(
 def _validate_compare_guard(
     name: str,
     value: Any,
-    guards: Mapping[str, Any],
+    compare: Mapping[str, Any],
     resolved: Mapping[str, "ResolvedParameter"],
 ) -> list[str]:
-    def handle(compare: Mapping[str, Any]) -> list[str]:
-        target_name, comparator, other, config_errors = _resolve_compare_configuration(
-            name, compare, resolved
-        )
-        if config_errors:
-            return config_errors
+    target_name, comparator, other, config_errors = _resolve_compare_configuration(
+        name, compare, resolved
+    )
+    if config_errors:
+        return config_errors
 
-        with suppress(TypeError):
-            assert comparator is not None and other is not None
-            if comparator.compare(value, other.value):
-                return []
+    with suppress(TypeError):
+        assert comparator is not None and other is not None
+        if comparator.compare(value, other.value):
+            return []
 
-            message = compare.get("message")
-            if isinstance(message, str):
-                return [message]
-            if message is None:
-                return [comparator.message(name, target_name)]
-            return [str(message)]
+        message = compare.get("message")
+        if isinstance(message, str):
+            return [message]
+        if message is None:
+            return [comparator.message(name, target_name)]
+        return [str(message)]
 
-        return [
-            f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'"
-        ]
+    return [
+        f"Parameter '{name}' compare guard could not compare with parameter '{target_name}'",
+    ]
 
-    return _apply_guard_mapping(name, guards, "compare", handle)
+
+_MAPPING_GUARDS: Mapping[
+    str,
+    Callable[[str, Any, Mapping[str, Any], Mapping[str, "ResolvedParameter"]], list[str]],
+] = {
+    "length": _validate_length_guard,
+    "range": _validate_range_guard,
+    "datetime_window": _validate_datetime_window_guard,
+    "compare": _validate_compare_guard,
+}
 
 
 def _as_float(value: Any) -> float | None:
@@ -686,12 +702,6 @@ def _parse_datetime_for_guard(
         None,
         f"Parameter '{name}' datetime_window{qualifier} must be a datetime or ISO 8601 string",
     )
-
-
-def _format_datetime_boundary(raw: Any) -> str:
-    if isinstance(raw, _dt.datetime):
-        return raw.isoformat()
-    return str(raw)
 
 
 def _datetimes_mixed_timezone_awareness(

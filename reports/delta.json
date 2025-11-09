@@ -1,14 +1,5 @@
 {
   "before": {
-    "non_space_sloc": 1924,
-    "function_count": 183,
-    "expression_count": 6590,
-    "cyclomatic_total": 533.0,
-    "cyclomatic_average": 2.912568306010929,
-    "maintainability_average": 64.04908859598048,
-    "halstead_bugs": 1.3789918970691561
-  },
-  "after": {
     "non_space_sloc": 1920,
     "function_count": 185,
     "expression_count": 6617,
@@ -17,29 +8,44 @@
     "maintainability_average": 64.3297220590147,
     "halstead_bugs": 1.332994588352786
   },
-  "delta": {
-    "non_space_sloc": -4,
-    "function_count": 2,
-    "expression_count": 27,
-    "cyclomatic_total": -22.0,
-    "cyclomatic_average": -0.1504061438487665,
-    "maintainability_average": 0.28063346303422065,
-    "halstead_bugs": -0.04599730871637009
+  "after": {
+    "non_space_sloc": 1918,
+    "function_count": 177,
+    "expression_count": 6601,
+    "cyclomatic_total": 517.0,
+    "cyclomatic_average": 2.92090395480226,
+    "maintainability_average": 64.16000217130355,
+    "halstead_bugs": 1.383822958270674
   },
-  "files_changed": 2,
-  "functions_modified": 192,
+  "delta": {
+    "non_space_sloc": -2,
+    "function_count": -8,
+    "expression_count": -16,
+    "cyclomatic_total": 6.0,
+    "cyclomatic_average": 0.15874179264009758,
+    "maintainability_average": -0.1697198877111532,
+    "halstead_bugs": 0.05082836991788797
+  },
+  "files_changed": 3,
+  "functions_modified": 174,
   "notable_modules": [
     {
       "path": "webbed_duck/_templating/binding.py",
-      "before": 0.523633296205645,
-      "after": 0.4899268280212335,
-      "delta": -0.03370646818441153
+      "before": 0.4899268280212335,
+      "after": 0.531497943474423,
+      "delta": 0.04157111545318953
     },
     {
       "path": "webbed_duck/server/cache.py",
-      "before": 0.7120415944361951,
-      "after": 0.6997507539042365,
-      "delta": -0.012290840531958613
+      "before": 0.6997507539042365,
+      "after": 0.7095606132709122,
+      "delta": 0.009809859366675777
+    },
+    {
+      "path": "webbed_duck/_templating/renderer.py",
+      "before": 0.04126466250649041,
+      "after": 0.040712057604513116,
+      "delta": -0.0005526049019772966
     },
     {
       "path": "scripts/generate_template_docs.py",
@@ -49,12 +55,6 @@
     },
     {
       "path": "webbed_duck/__init__.py",
-      "before": 0.0,
-      "after": 0.0,
-      "delta": 0.0
-    },
-    {
-      "path": "webbed_duck/_templating/__init__.py",
       "before": 0.0,
       "after": 0.0,
       "delta": 0.0
