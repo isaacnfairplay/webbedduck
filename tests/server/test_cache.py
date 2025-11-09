@@ -113,23 +113,31 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert first.row_count == table.num_rows
     assert first.page_size == config.page_size
     assert first.page_count == 3
-    assert set(first.formats) == {"arrow", "parquet", "csv", "json"}
+    assert set(first.formats) == {"arrow", "parquet", "csv", "json", "jsonl"}
     assert dict(first.requested_invariants) == {}
     assert dict(first.cached_invariants) == {}
     assert first.created_at == start_time
     assert first.expires_at == start_time + config.ttl
 
-    with first.data.open("arrow") as arrow_view:
-        assert arrow_view.equals(table)
-    with first.data.open("arrow", page=1) as page_two:
-        assert page_two.num_rows == 2
-        assert [row["id"] for row in page_two.to_pylist()] == [3, 4]
+    arrow_view = first.as_arrow()
+    assert arrow_view.equals(table)
+    page_two = first.as_arrow(page=1)
+    assert page_two.num_rows == 2
+    assert [row["id"] for row in page_two.to_pylist()] == [3, 4]
     with first.data.open("json", page=0) as json_stream:
         first_page = json.loads(json_stream.read())
         assert [row["id"] for row in first_page] == [1, 2]
+    with first.data.open("jsonl", page=0) as jsonl_stream:
+        lines = [json.loads(chunk) for chunk in jsonl_stream.read().splitlines()]
+        assert [row["id"] for row in lines] == [1, 2]
     with first.data.open("csv", page=2) as csv_stream:
-        csv_payload = csv_stream.read().decode()
+        csv_payload = csv_stream.read()
         assert "central" in csv_payload
+    with first.data.open("parquet", page=1) as parquet_stream:
+        parquet_bytes = parquet_stream.read()
+
+    page_path = sorted((tmp_cache_dir / key.digest).glob("page-*.parquet"))[1]
+    assert parquet_bytes == page_path.read_bytes()
 
     entry_dir = tmp_cache_dir / key.digest
     assert entry_dir.exists()

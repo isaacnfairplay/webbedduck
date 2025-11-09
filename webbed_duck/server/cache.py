@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
+from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, Sequence, TextIO
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -322,13 +322,66 @@ def _slice_table(table: pa.Table, page_size: int, page: int | None) -> pa.Table:
     return table.slice(start, length)
 
 
+class _IterTextIO(io.TextIOBase):
+    """Lazy text stream that pulls chunks from an iterator on demand."""
+
+    def __init__(self, chunks: Iterable[str]) -> None:
+        self._iterator: Iterator[str] = iter(chunks)
+        self._buffer: str = ""
+        self._closed = False
+
+    def readable(self) -> bool:  # pragma: no cover - trivial
+        return True
+
+    def read(self, size: int = -1) -> str:  # pragma: no cover - exercised via callers
+        if self._closed:
+            raise ValueError("I/O operation on closed file.")
+        if size is None or size < 0:
+            payload = self._buffer + "".join(self._iterator)
+            self._buffer = ""
+            self._iterator = iter(())
+            return payload
+
+        remaining = size
+        pieces: list[str] = []
+        if self._buffer:
+            take = self._buffer[:remaining]
+            pieces.append(take)
+            self._buffer = self._buffer[remaining:]
+            remaining -= len(take)
+            if remaining == 0:
+                return "".join(pieces)
+
+        while remaining > 0:
+            chunk = next(self._iterator, None)
+            if chunk is None:
+                break
+            if len(chunk) <= remaining:
+                pieces.append(chunk)
+                remaining -= len(chunk)
+            else:
+                pieces.append(chunk[:remaining])
+                self._buffer = chunk[remaining:]
+                remaining = 0
+        return "".join(pieces)
+
+    def close(self) -> None:  # pragma: no cover - trivial
+        if not self._closed:
+            self._iterator = iter(())
+            self._buffer = ""
+            self._closed = True
+        super().close()
+
+
 class _BaseAdapter:
-    """Context manager factory that encodes a table into a target format."""
+    """Context manager factory that exposes a table in a target format."""
 
     format: ClassVar[str]
 
     @contextlib.contextmanager
-    def open(self, table: pa.Table):  # pragma: no cover - overridden by subclasses
+    def open(
+        self, handle: "DataHandle", page: int | None
+    ):  # pragma: no cover - overridden by subclasses
         raise NotImplementedError
 
 
@@ -336,45 +389,107 @@ class _ArrowAdapter(_BaseAdapter):
     format = "arrow"
 
     @contextlib.contextmanager
-    def open(self, table: pa.Table):
-        yield table
+    def open(self, handle: "DataHandle", page: int | None):
+        yield handle.as_arrow(page)
 
 
 class _ParquetAdapter(_BaseAdapter):
     format = "parquet"
 
     @contextlib.contextmanager
-    def open(self, table: pa.Table):
+    def open(self, handle: "DataHandle", page: int | None):
+        if page is None or handle._entry_path is None:
+            sink = pa.BufferOutputStream()
+            pq.write_table(handle.as_arrow(page), sink)
+            buffer = io.BytesIO(sink.getvalue().to_pybytes())
+            try:
+                yield buffer
+            finally:
+                buffer.close()
+            return
+
+        file_path = handle._page_path(page)
+        with file_path.open("rb") as stream:
+            yield stream
+
+
+def _iter_csv_chunks(table: pa.Table) -> Iterator[str]:
+    if table.num_rows == 0:
         sink = pa.BufferOutputStream()
-        pq.write_table(table, sink)
-        buffer = io.BytesIO(sink.getvalue().to_pybytes())
-        try:
-            yield buffer
-        finally:
-            buffer.close()
+        pacsv.write_csv(table, sink)
+        payload = sink.getvalue().to_pybytes().decode("utf-8")
+        if payload:
+            yield payload
+        return
+
+    include_header = True
+    for batch in table.to_batches(max_chunksize=table.num_rows or None):
+        page_table = pa.Table.from_batches([batch])
+        sink = pa.BufferOutputStream()
+        pacsv.write_csv(
+            page_table,
+            sink,
+            write_options=pacsv.WriteOptions(include_header=include_header),
+        )
+        include_header = False
+        payload = sink.getvalue().to_pybytes().decode("utf-8")
+        if payload:
+            yield payload
 
 
 class _CsvAdapter(_BaseAdapter):
     format = "csv"
 
     @contextlib.contextmanager
-    def open(self, table: pa.Table):
-        sink = pa.BufferOutputStream()
-        pacsv.write_csv(table, sink)
-        buffer = io.BytesIO(sink.getvalue().to_pybytes())
+    def open(self, handle: "DataHandle", page: int | None):
+        table = handle.as_arrow(page)
+        stream = _IterTextIO(_iter_csv_chunks(table))
         try:
-            yield buffer
+            yield stream
         finally:
-            buffer.close()
+            stream.close()
+
+
+def _iter_json_chunks(table: pa.Table) -> Iterator[str]:
+    yield "["
+    first = True
+    for batch in table.to_batches(max_chunksize=table.num_rows or None):
+        for record in batch.to_pylist():
+            if not first:
+                yield ","
+            yield json.dumps(record, default=str)
+            first = False
+    yield "]"
 
 
 class _JsonAdapter(_BaseAdapter):
     format = "json"
 
     @contextlib.contextmanager
-    def open(self, table: pa.Table):
-        payload = json.dumps(table.to_pylist(), default=str)
-        stream = io.StringIO(payload)
+    def open(self, handle: "DataHandle", page: int | None):
+        table = handle.as_arrow(page)
+        stream = _IterTextIO(_iter_json_chunks(table))
+        try:
+            yield stream
+        finally:
+            stream.close()
+
+
+def _iter_json_lines(table: pa.Table) -> Iterator[str]:
+    if table.num_rows == 0:
+        return
+    for batch in table.to_batches(max_chunksize=table.num_rows or None):
+        for record in batch.to_pylist():
+            yield json.dumps(record, default=str) + "\n"
+
+
+class _JsonLinesAdapter(_BaseAdapter):
+    format = "jsonl"
+
+    @contextlib.contextmanager
+    def open(self, handle: "DataHandle", page: int | None):
+        table = handle.as_arrow(page)
+        stream = _IterTextIO(_iter_json_lines(table))
         try:
             yield stream
         finally:
@@ -383,10 +498,17 @@ class _JsonAdapter(_BaseAdapter):
 
 @dataclass(frozen=True)
 class DataHandle:
-    """Format-aware accessor for cached query payloads."""
+    """Format-aware accessor for cached query payloads.
+
+    Arrow payloads should be retrieved via :meth:`as_arrow`, which returns a
+    :class:`pyarrow.Table` without requiring context management. Binary formats
+    such as Parquet yield ``BinaryIO`` handles, while textual formats return a
+    ``TextIO`` stream.
+    """
 
     _table: pa.Table
     _page_size: int
+    _entry_path: Path | None = None
     _ADAPTERS: ClassVar[dict[str, _BaseAdapter]] = {
         adapter.format: adapter
         for adapter in (
@@ -394,6 +516,7 @@ class DataHandle:
             _ParquetAdapter(),
             _CsvAdapter(),
             _JsonAdapter(),
+            _JsonLinesAdapter(),
         )
     }
 
@@ -428,18 +551,37 @@ class DataHandle:
         return self._table
 
     def as_arrow(self, page: int | None = None) -> pa.Table:
+        """Return a :class:`pyarrow.Table` slice without context management."""
         return _slice_table(self._table, self._page_size, page)
 
     @contextlib.contextmanager
-    def open(self, format: str, page: int | None = None):
+    def open(
+        self, format: str, page: int | None = None
+    ) -> Iterator[BinaryIO | TextIO | pa.Table]:
+        """Open a page in the requested format.
+
+        ``"parquet"`` returns a binary file handle, while ``"csv"``, ``"json"``,
+        and ``"jsonl"`` yield :class:`io.TextIOBase` instances that stream
+        encoded rows. ``"arrow"`` is equivalent to :meth:`as_arrow` and returns a
+        :class:`pyarrow.Table`.
+        """
+
         adapter = self._ADAPTERS.get(format)
         if adapter is None:
             raise ValueError(
                 f"Unsupported format '{format}'. Expected one of {self.formats}."
             )
-        table = self.as_arrow(page)
-        with adapter.open(table) as resource:
+        with adapter.open(self, page) as resource:
             yield resource
+
+    def _page_path(self, page: int) -> Path:
+        if self._entry_path is None:
+            raise ValueError("Parquet pages are unavailable for in-memory results")
+        if page < 0:
+            raise ValueError("Page numbers are 0-indexed")
+        if page >= self.page_count:
+            raise ValueError("Requested page exceeds available rows")
+        return self._entry_path / f"page-{page:05d}.parquet"
 
 
 @dataclass(frozen=True)
@@ -487,7 +629,15 @@ class ResponseEnvelope:
         return self.data.as_arrow(page).to_pylist()
 
     def as_arrow(self, page: int | None = None) -> pa.Table:
+        """Return the requested page as a :class:`pyarrow.Table`."""
         return self.data.as_arrow(page)
+
+    def open(
+        self, format: str, page: int | None = None
+    ) -> Iterator[BinaryIO | TextIO | pa.Table]:
+        """Convenience alias for :meth:`DataHandle.open`."""
+
+        return self.data.open(format, page=page)
 
 
 # Backwards-compatible alias for downstream imports.
@@ -758,7 +908,7 @@ class Cache:
         from_cache: bool,
         from_superset: bool,
     ) -> CacheResult:
-        data = DataHandle(table, entry.page_size)
+        data = DataHandle(table, entry.page_size, entry.path)
         return CacheResult(
             data=data,
             from_cache=from_cache,

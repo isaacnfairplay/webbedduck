@@ -477,6 +477,17 @@ def _range_violation_messages(
     return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
 
 
+def _range_guard_preflight(
+    name: str, bounds: Mapping[str, Any], value: Any
+) -> tuple[float | int | None, list[str]]:
+    if not any(bounds.get(label) is not None for label in ("min", "max")):
+        return None, [f"Parameter '{name}' range guard requires 'min' or 'max'"]
+    numeric_value = _as_float(value)
+    if numeric_value is None:
+        return None, [f"Parameter '{name}' must be numeric to apply range guard"]
+    return numeric_value, []
+
+
 def _validate_range_guard(
     name: str,
     value: Any,
@@ -487,12 +498,9 @@ def _validate_range_guard(
     if mapping_errors or bounds is None:
         return mapping_errors
 
-    if not any(bounds.get(label) is not None for label in ("min", "max")):
-        return [f"Parameter '{name}' range guard requires 'min' or 'max'"]
-
-    numeric_value = _as_float(value)
-    if numeric_value is None:
-        return [f"Parameter '{name}' must be numeric to apply range guard"]
+    numeric_value, errors = _range_guard_preflight(name, bounds, value)
+    if errors:
+        return errors
 
     numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
     if errors:
