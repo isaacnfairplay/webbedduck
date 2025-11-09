@@ -789,30 +789,45 @@ class Cache:
 
     def fetch_or_populate(self, key: CacheKey) -> CacheResult:
         now = self._clock()
-        entry = self._storage.load_entry(key, now)
-        if entry is not None:
-            table = self._storage.read_entry(entry)
-            filtered = self._apply_filters(table, key)
-            return self._build_result(
-                filtered,
+        cached = self._resolve_cached_entry(key, now)
+        if cached is not None:
+            entry, from_superset = cached
+            return self._materialise_entry(
+                entry,
                 key=key,
-                entry=entry,
-                from_cache=True,
-                from_superset=False,
+                from_superset=from_superset,
             )
 
+        return self._populate_entry(key, now)
+
+    def _resolve_cached_entry(
+        self, key: CacheKey, now: datetime
+    ) -> tuple[CacheEntry, bool] | None:
+        if (entry := self._storage.load_entry(key, now)) is not None:
+            return entry, False
         superset_entry = self._find_superset_entry(key, now)
         if superset_entry is not None:
-            table = self._storage.read_entry(superset_entry)
-            filtered = self._apply_filters(table, key)
-            return self._build_result(
-                filtered,
-                key=key,
-                entry=superset_entry,
-                from_cache=True,
-                from_superset=True,
-            )
+            return superset_entry, True
+        return None
 
+    def _materialise_entry(
+        self,
+        entry: CacheEntry,
+        *,
+        key: CacheKey,
+        from_superset: bool,
+    ) -> CacheResult:
+        table = self._storage.read_entry(entry)
+        filtered = self._apply_filters(table, key)
+        return self._build_result(
+            filtered,
+            key=key,
+            entry=entry,
+            from_cache=True,
+            from_superset=from_superset,
+        )
+
+    def _populate_entry(self, key: CacheKey, now: datetime) -> CacheResult:
         raw_table = _ensure_arrow_table(
             self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
         )

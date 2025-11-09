@@ -41,3 +41,8 @@
 - Introduce `_require_format_definition` so date, timestamp, and number formatters reuse the same guard logic instead of duplicating checks.
 - Refresh complexity reports to capture the lower cyclomatic totals, reduced non-space SLOC, and improved maintainability index.
 
+## Complexity reduction: cache fetch orchestration
+- Extract `_resolve_cached_entry`, `_materialise_entry`, and `_populate_entry` helpers so `Cache.fetch_or_populate` focuses on orchestration with fewer branches.
+- Preserve invariant and constant filtering while reducing duplicated storage reads for cached and superset paths.
+- Capture cache-focused refactoring guidance in the `lessons_learned/` notebooks and surface the reminder inside `AGENTS.md`.
+
