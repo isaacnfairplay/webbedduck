@@ -51,6 +51,16 @@ def _build_duckdb_table(rows: list[tuple[Any, ...]], columns: list[str]) -> pa.T
     return relation.sql("SELECT * FROM data").arrow().read_all()
 
 
+def _rows(envelope) -> list[dict[str, Any]]:
+    with envelope.data.open("arrow") as stream:
+        table = pa.ipc.open_stream(stream).read_all()
+    return table.to_pylist()
+
+
+def _schema_metadata(table: pa.Table) -> list[dict[str, str]]:
+    return [{"name": field.name, "type": str(field.type)} for field in table.schema]
+
+
 @pytest.fixture
 def tmp_cache_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path / "cache"
@@ -105,12 +115,18 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
 
     start_time = clock.now()
     first = cache.fetch_or_populate(key)
-    assert first.to_pylist() == table.to_pylist()
+    assert _rows(first) == table.to_pylist()
     assert call_counter["count"] == 1
     assert first.from_cache is False
     assert first.from_superset is False
     assert first.entry_digest == key.digest
     assert first.row_count == table.num_rows
+    assert first.schema == _schema_metadata(table)
+    assert first.page_size == config.page_size
+    assert first.page_count == 3
+    assert first.data.schema == table.schema
+    assert first.data.page_count == first.page_count
+    assert first.data.row_count == table.num_rows
     assert dict(first.requested_invariants) == {}
     assert dict(first.cached_invariants) == {}
     assert first.created_at == start_time
@@ -122,9 +138,10 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert len(pages) == 3  # ceil(5 rows / 2 page size)
     metadata = json.loads((entry_dir / "metadata.json").read_text())
     assert metadata["row_count"] == 5
+    assert metadata["page_size"] == config.page_size
 
     second = cache.fetch_or_populate(key)
-    assert second.to_pylist() == table.to_pylist()
+    assert _rows(second) == table.to_pylist()
     assert call_counter["count"] == 1  # hit: runner not called
     assert second.from_cache is True
     assert second.from_superset is False
@@ -135,7 +152,7 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     clock.advance(120)
     refresh_time = clock.now()
     third = cache.fetch_or_populate(key)
-    assert third.to_pylist() == table.to_pylist()
+    assert _rows(third) == table.to_pylist()
     assert call_counter["count"] == 2  # miss after TTL expiry
     assert third.from_cache is False
     assert third.from_superset is False
@@ -181,7 +198,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
     )
 
     result = cache.fetch_or_populate(key)
-    as_rows = result.to_pylist()
+    as_rows = _rows(result)
     assert call_counter["count"] == 1
     assert all(row["segment"] is None for row in as_rows)
     assert all(row["channel"] == "email" for row in as_rows)
@@ -198,7 +215,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
 
     again = cache.fetch_or_populate(key)
     assert call_counter["count"] == 1  # cache hit bypasses runner
-    assert again.to_pylist() == as_rows
+    assert _rows(again) == as_rows
     assert again.from_cache is True
     assert again.from_superset is False
     assert again.entry_digest == key.digest
@@ -244,13 +261,17 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     )
 
     superset = cache.fetch_or_populate(superset_key)
-    superset_rows = superset.to_pylist()
+    superset_rows = _rows(superset)
     assert call_counter["count"] == 1
     assert {row["region"] for row in superset_rows} == {"US", "CA"}
     assert superset.from_cache is False
     assert superset.from_superset is False
     assert superset.entry_digest == superset_key.digest
     assert superset.row_count == len(superset_rows)
+    assert superset.schema == _schema_metadata(table)
+    assert superset.page_size == config.page_size
+    assert superset.page_count == 1
+    assert superset.data.page_count == superset.page_count
     assert dict(superset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca", "us"),
@@ -272,13 +293,14 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
 
     subset = cache.fetch_or_populate(subset_key)
     assert call_counter["count"] == 1  # served from cached superset
-    subset_rows = subset.to_pylist()
+    subset_rows = _rows(subset)
     assert {row["region"] for row in subset_rows} == {"CA"}
     assert all(row["channel"] == "email" for row in subset_rows)
     assert subset.from_cache is True
     assert subset.from_superset is True
     assert subset.entry_digest == superset_key.digest
     assert subset.row_count == len(subset_rows)
+    assert subset.page_count == 1
     assert dict(subset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca",),
@@ -293,7 +315,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     )
 
     miss = cache.fetch_or_populate(miss_key)
-    assert miss.to_pylist() == [
+    assert _rows(miss) == [
         {"channel": "email", "region": "US", "cohort": "north"},
         {"channel": "email", "region": "MX", "cohort": "south"},
     ]
@@ -302,6 +324,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     assert miss.from_superset is False
     assert miss.entry_digest == miss_key.digest
     assert miss.row_count == 2
+    assert miss.page_count == 1
     assert dict(miss.requested_invariants) == {
         "channel": ("email",),
         "region": ("mx", "us"),
@@ -347,13 +370,14 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     )
 
     result = cache.fetch_or_populate(key)
-    rows_vip = result.to_pylist()
+    rows_vip = _rows(result)
     assert call_counter["count"] == 1
     assert {row["user"] for row in rows_vip} == {"alice", "bob"}
     assert result.from_cache is False
     assert result.from_superset is False
     assert result.entry_digest == key.digest
     assert result.row_count == len(rows_vip)
+    assert result.page_count == 1
     assert dict(result.requested_invariants) == {"segment": ("vip",)}
     assert dict(result.cached_invariants) == {"segment": ("vip",)}
 
@@ -370,7 +394,7 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     assert same_key.digest == key.digest
     again = cache.fetch_or_populate(same_key)
     assert call_counter["count"] == 1
-    assert again.to_pylist() == rows_vip
+    assert _rows(again) == rows_vip
     assert again.from_cache is True
     assert again.from_superset is False
     assert again.entry_digest == key.digest
@@ -411,7 +435,8 @@ def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path)
 
     result = cache.fetch_or_populate(key)
     assert call_counter["count"] == 1
-    assert result.to_pylist() == [{"user_id": 2, "name": "bob"}]
+    assert _rows(result) == [{"user_id": 2, "name": "bob"}]
+    assert result.page_count == 1
     assert result.from_cache is False
     assert result.from_superset is False
     assert result.entry_digest == key.digest

@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import math
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import reduce
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
+from typing import Any, Callable, ClassVar, Iterable, Iterator, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.csv as pa_csv
+import pyarrow.ipc as pa_ipc
 import pyarrow.parquet as pq
 
 
@@ -104,6 +109,19 @@ def _compute_digest(route_slug: str, parameters: tuple[tuple[str, str], ...], co
         default=str,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _resolve_page_size(metadata: Mapping[str, Any], entry_dir: Path) -> int:
+    page_size = metadata.get("page_size")
+    if isinstance(page_size, int) and page_size > 0:
+        return page_size
+    pages = sorted(entry_dir.glob("page-*.parquet"))
+    for page in pages:
+        table = pq.read_table(page)
+        if table.num_rows > 0:
+            return table.num_rows
+    fallback = metadata.get("row_count", 0)
+    return max(1, int(fallback) if isinstance(fallback, (int, float)) else 1)
 
 
 def _ensure_arrow_table(result: Any) -> pa.Table:
@@ -302,15 +320,262 @@ class CacheEntry:
     created_at: datetime
     expires_at: datetime
     row_count: int
+    page_size: int
     invariants: Mapping[str, tuple[str, ...]]
 
 
-@dataclass(frozen=True)
-class CacheResult:
-    """Immutable payload returned to callers after cache resolution."""
+def _schema_to_metadata(schema: pa.Schema) -> list[dict[str, str]]:
+    return [
+        {"name": field.name, "type": str(field.type)}
+        for field in schema
+    ]
 
-    table: pa.Table
+
+def _empty_table(schema: pa.Schema) -> pa.Table:
+    if not schema:
+        return pa.table({})
+    arrays = {
+        field.name: pa.array([], type=field.type)
+        for field in schema
+    }
+    return pa.table(arrays, schema=schema)
+
+
+class _BaseDataSource:
+    """Common interface for data sources powering format adapters."""
+
+    def __init__(self, *, page_size: int) -> None:
+        self._page_size = max(page_size, 1)
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    def schema(self) -> pa.Schema:
+        raise NotImplementedError
+
+    def row_count(self) -> int:
+        raise NotImplementedError
+
+    def page_count(self) -> int:
+        rows = self.row_count()
+        if rows == 0:
+            return 0
+        return max(1, math.ceil(rows / self.page_size))
+
+    def table_for_page(self, page: int | None) -> pa.Table:
+        raise NotImplementedError
+
+    def parquet_page_path(self, page: int) -> Path | None:
+        return None
+
+
+class _MetadataSource(_BaseDataSource):
+    """Metadata-only data source used for envelope bookkeeping."""
+
+    def __init__(self, *, schema: pa.Schema, row_count: int, page_size: int) -> None:
+        super().__init__(page_size=page_size)
+        self._schema = schema
+        self._row_count = row_count
+
+    def schema(self) -> pa.Schema:
+        return self._schema
+
+    def row_count(self) -> int:
+        return self._row_count
+
+    def table_for_page(self, page: int | None) -> pa.Table:
+        msg = "metadata-only source cannot supply table data"
+        raise ValueError(msg)
+
+
+class _TableDataSource(_BaseDataSource):
+    """Data source backed by an in-memory Arrow table."""
+
+    def __init__(self, table: pa.Table, *, page_size: int) -> None:
+        super().__init__(page_size=page_size)
+        self._table = table
+
+    def schema(self) -> pa.Schema:
+        return self._table.schema
+
+    def row_count(self) -> int:
+        return self._table.num_rows
+
+    def table_for_page(self, page: int | None) -> pa.Table:
+        if page is None:
+            return self._table
+        if page < 0 or page >= self.page_count():
+            msg = f"page index {page} out of range"
+            raise ValueError(msg)
+        start = page * self.page_size
+        length = min(self.page_size, self.row_count() - start)
+        return self._table.slice(start, length)
+
+
+class _ParquetPageSource(_BaseDataSource):
+    """Data source backed by persisted Parquet page files."""
+
+    def __init__(self, entry: CacheEntry, *, schema: pa.Schema) -> None:
+        super().__init__(page_size=entry.page_size)
+        self._entry = entry
+        self._schema = schema
+        self._pages = sorted(entry.path.glob("page-*.parquet"))
+
+    def schema(self) -> pa.Schema:
+        return self._schema
+
+    def row_count(self) -> int:
+        return self._entry.row_count
+
+    def page_count(self) -> int:
+        if self.row_count() == 0:
+            return 0
+        return len(self._pages)
+
+    def table_for_page(self, page: int | None) -> pa.Table:
+        if page is None:
+            tables = [pq.read_table(path) for path in self._pages]
+            if not tables:
+                return _empty_table(self._schema)
+            if len(tables) == 1:
+                return tables[0]
+            return pa.concat_tables(tables)
+        if page < 0 or page >= len(self._pages):
+            msg = f"page index {page} out of range"
+            raise ValueError(msg)
+        return pq.read_table(self._pages[page])
+
+    def parquet_page_path(self, page: int) -> Path | None:
+        if page < 0 or page >= len(self._pages):
+            msg = f"page index {page} out of range"
+            raise ValueError(msg)
+        return self._pages[page]
+
+
+class _FormatAdapter:
+    """Base adapter implementing table resolution with fallbacks."""
+
+    def __init__(self, sources: tuple[_BaseDataSource, ...]):
+        self._sources = sources
+
+    def _table(self, page: int | None) -> pa.Table:
+        last_error: Exception | None = None
+        for source in self._sources:
+            try:
+                return source.table_for_page(page)
+            except ValueError as exc:  # invalid page for this source
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise ValueError("no data sources available")
+
+
+class _ArrowAdapter(_FormatAdapter):
+    @contextmanager
+    def open(self, page: int | None) -> Iterator[pa.BufferReader]:
+        table = self._table(page)
+        sink = pa.BufferOutputStream()
+        with pa_ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
+        yield pa.BufferReader(sink.getvalue())
+
+
+class _ParquetAdapter(_FormatAdapter):
+    @contextmanager
+    def open(self, page: int | None) -> Iterator[io.BufferedReader | pa.BufferReader]:
+        if page is not None:
+            for source in self._sources:
+                try:
+                    path = source.parquet_page_path(page)
+                except ValueError:
+                    continue
+                if path is not None:
+                    with path.open("rb") as handle:
+                        yield handle
+                    return
+        table = self._table(page)
+        sink = pa.BufferOutputStream()
+        pq.write_table(table, sink)
+        yield pa.BufferReader(sink.getvalue())
+
+
+class _CsvAdapter(_FormatAdapter):
+    @contextmanager
+    def open(self, page: int | None) -> Iterator[io.BytesIO]:
+        table = self._table(page)
+        sink = io.BytesIO()
+        pa_csv.write_csv(table, sink)
+        sink.seek(0)
+        yield sink
+
+
+class _JsonAdapter(_FormatAdapter):
+    @contextmanager
+    def open(self, page: int | None) -> Iterator[io.BytesIO]:
+        table = self._table(page)
+        payload = "\n".join(json.dumps(row, default=str) for row in table.to_pylist())
+        buffer = io.BytesIO(payload.encode("utf-8"))
+        buffer.seek(0)
+        yield buffer
+
+
+class DataHandle:
+    """Format-agnostic accessor for cached query data."""
+
+    def __init__(self, *sources: _BaseDataSource) -> None:
+        if not sources:
+            msg = "at least one data source is required"
+            raise ValueError(msg)
+        self._sources = sources
+        adapters_sources = tuple(sources)
+        self._adapters = {
+            "arrow": _ArrowAdapter(adapters_sources),
+            "parquet": _ParquetAdapter(adapters_sources),
+            "csv": _CsvAdapter(adapters_sources),
+            "json": _JsonAdapter(adapters_sources),
+        }
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self._sources[0].schema()
+
+    @property
+    def row_count(self) -> int:
+        return self._sources[0].row_count()
+
+    @property
+    def page_size(self) -> int:
+        return self._sources[0].page_size
+
+    @property
+    def page_count(self) -> int:
+        return self._sources[0].page_count()
+
+    def open(self, format: str, *, page: int | None = None):
+        format_key = format.lower()
+        adapter = self._adapters.get(format_key)
+        if adapter is None:
+            msg = f"unsupported format '{format}'"
+            raise ValueError(msg)
+        if page is not None:
+            self._validate_page(page)
+        return adapter.open(page)
+
+    def _validate_page(self, page: int) -> None:
+        if page < 0 or page >= self.page_count:
+            msg = f"page index {page} out of range"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ResponseEnvelope:
+    """Metadata wrapper returning cache hits with lazy data access."""
+
+    schema: list[dict[str, str]]
     row_count: int
+    page_count: int
+    page_size: int
     from_cache: bool
     from_superset: bool
     entry_digest: str | None
@@ -318,16 +583,33 @@ class CacheResult:
     cached_invariants: Mapping[str, tuple[str, ...]]
     created_at: datetime | None
     expires_at: datetime | None
+    _data_handle: DataHandle = field(repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
         object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
-    def to_pylist(self) -> list[dict[str, Any]]:
-        return self.table.to_pylist()
+    @property
+    def data(self) -> DataHandle:
+        return self._data_handle
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self.table, name)
+    def to_metadata(self) -> Mapping[str, Any]:
+        return {
+            "schema": self.schema,
+            "row_count": self.row_count,
+            "page_count": self.page_count,
+            "page_size": self.page_size,
+            "from_cache": self.from_cache,
+            "from_superset": self.from_superset,
+            "entry_digest": self.entry_digest,
+            "requested_invariants": dict(self.requested_invariants),
+            "cached_invariants": dict(self.cached_invariants),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
+
+
+CacheResult = ResponseEnvelope
 
 
 class CacheStorage:
@@ -351,12 +633,14 @@ class CacheStorage:
         if _handle_expiry(expires_at, now, on_expire=lambda: self.evict(key)):
             return None
         invariants = _freeze_token_mapping(data.get("invariants", {}))
+        page_size = _resolve_page_size(data, entry_dir)
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
             row_count=data["row_count"],
+            page_size=page_size,
             invariants=invariants,
         )
 
@@ -390,6 +674,7 @@ class CacheStorage:
             "created_at": created_at.isoformat(),
             "ttl_seconds": ttl.total_seconds(),
             "row_count": table.num_rows,
+            "page_size": page_size,
             "route_slug": key.route_slug,
             "parameters": list(key.parameters),
             "constants": list(key.constants),
@@ -405,6 +690,7 @@ class CacheStorage:
             created_at=created_at,
             expires_at=expires_at,
             row_count=table.num_rows,
+            page_size=page_size,
             invariants=_freeze_token_mapping(invariant_payload),
         )
 
@@ -457,12 +743,14 @@ class CacheStorage:
             _raw_constants=_freeze_str_mapping(raw_consts),
             _invariant_tokens=_freeze_token_mapping(invariants),
         )
+        page_size = _resolve_page_size(data, entry_dir)
         return CacheEntry(
             key=key,
             path=entry_dir,
             created_at=created_at,
             expires_at=expires_at,
             row_count=data.get("row_count", 0),
+            page_size=page_size,
             invariants=key.invariant_tokens,
         )
 
@@ -484,7 +772,7 @@ class Cache:
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
 
-    def fetch_or_populate(self, key: CacheKey) -> CacheResult:
+    def fetch_or_populate(self, key: CacheKey) -> ResponseEnvelope:
         now = self._clock()
         entry = self._storage.load_entry(key, now)
         if entry is not None:
@@ -586,10 +874,27 @@ class Cache:
         entry: CacheEntry,
         from_cache: bool,
         from_superset: bool,
-    ) -> CacheResult:
-        return CacheResult(
-            table=table,
-            row_count=table.num_rows,
+    ) -> ResponseEnvelope:
+        row_count = table.num_rows
+        page_size = entry.page_size
+        page_count = 0 if row_count == 0 else math.ceil(row_count / page_size)
+        metadata_source = _MetadataSource(
+            schema=table.schema,
+            row_count=row_count,
+            page_size=page_size,
+        )
+        sources: list[_BaseDataSource] = [metadata_source]
+        if from_superset:
+            sources.append(_TableDataSource(table, page_size=page_size))
+        else:
+            sources.append(_ParquetPageSource(entry, schema=table.schema))
+            sources.append(_TableDataSource(table, page_size=page_size))
+        handle = DataHandle(*sources)
+        return ResponseEnvelope(
+            schema=_schema_to_metadata(table.schema),
+            row_count=row_count,
+            page_count=page_count,
+            page_size=page_size,
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,
@@ -597,6 +902,7 @@ class Cache:
             cached_invariants=entry.invariants,
             created_at=entry.created_at,
             expires_at=entry.expires_at,
+            _data_handle=handle,
         )
 
     def _find_superset_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
@@ -636,6 +942,30 @@ class Cache:
         }
         return existing_filtered == requested_filtered
 
+    def _entry_matches_request(
+        self,
+        entry: CacheEntry,
+        requested_params: Mapping[str, Any],
+        requested_constants: Mapping[str, Any],
+    ) -> bool:
+        return (
+            dict(entry.key.parameter_values) == requested_params
+            and self._non_invariant_equal(entry.key.constant_values, requested_constants)
+        )
+
+    def _covers_requested_invariants(
+        self,
+        entry_invariants: Mapping[str, tuple[str, ...]],
+        requested_invariants: Mapping[str, set[str]],
+    ) -> bool:
+        entry_sets = {name: set(tokens) for name, tokens in entry_invariants.items()}
+        if entry_sets.keys() != requested_invariants.keys():
+            return False
+        return all(
+            requested_invariants[name].issubset(entry_sets[name])
+            for name in requested_invariants
+        )
+
     def _entry_is_superset(
         self,
         entry: CacheEntry,
@@ -646,14 +976,6 @@ class Cache:
     ) -> bool:
         if entry.key.digest == key.digest:
             return False
-        if dict(entry.key.parameter_values) != requested_params:
+        if not self._entry_matches_request(entry, requested_params, requested_constants):
             return False
-        if not self._non_invariant_equal(entry.key.constant_values, requested_constants):
-            return False
-        entry_invariants = {name: set(tokens) for name, tokens in entry.invariants.items()}
-        if entry_invariants.keys() != requested_invariants.keys():
-            return False
-        return all(
-            requested_invariants[name].issubset(entry_invariants[name])
-            for name in requested_invariants
-        )
+        return self._covers_requested_invariants(entry.invariants, requested_invariants)
