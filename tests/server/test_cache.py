@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import csv
 import json
 import pathlib
 from typing import Any, Dict
@@ -11,6 +12,7 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 pa = pytest.importorskip("pyarrow")
+pq = pytest.importorskip("pyarrow.parquet")
 
 from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, InvariantFilter
 
@@ -111,10 +113,28 @@ def test_fetch_or_populate_persists_pages_and_enforces_ttl(tmp_cache_dir: pathli
     assert first.from_superset is False
     assert first.entry_digest == key.digest
     assert first.row_count == table.num_rows
+    assert first.page_size == config.page_size
+    assert first.page_count == 3
+    assert [field["name"] for field in first.schema] == columns
+    assert set(first.formats) == {"arrow", "csv", "json", "parquet"}
     assert dict(first.requested_invariants) == {}
     assert dict(first.cached_invariants) == {}
     assert first.created_at == start_time
     assert first.expires_at == start_time + config.ttl
+
+    with first.open("json", page=1) as stream:
+        page_payload = json.loads(stream.read())
+    assert len(page_payload) == 2
+    assert page_payload[0]["id"] == 3
+
+    with first.open("csv") as stream:
+        header = next(csv.reader(stream))
+    assert header == columns
+
+    with first.open("parquet", page=2) as stream:
+        as_table = pq.read_table(stream)
+    expected_page = table.slice(config.page_size * 2, config.page_size).to_pylist()
+    assert as_table.to_pylist() == expected_page
 
     entry_dir = tmp_cache_dir / key.digest
     assert entry_dir.exists()
@@ -279,6 +299,7 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
     assert subset.from_superset is True
     assert subset.entry_digest == superset_key.digest
     assert subset.row_count == len(subset_rows)
+    assert subset.page_count == 1
     assert dict(subset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca",),

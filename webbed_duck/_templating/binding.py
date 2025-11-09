@@ -459,27 +459,30 @@ def _validate_length_guard(
     ]
 
 
-def _validate_range_guard(
-    name: str,
-    value: Any,
-    guards: Mapping[str, Any],
-    _resolved: Mapping[str, "ResolvedParameter"],
-) -> list[str]:
+def _prepare_range_bounds(
+    name: str, guards: Mapping[str, Any]
+) -> tuple[dict[str, tuple[Any, float]] | None, list[str]]:
     bounds, mapping_errors = _guard_mapping(guards, "range", name)
     if mapping_errors or bounds is None:
-        return mapping_errors
-
+        return None, mapping_errors
     if not any(bounds.get(label) is not None for label in ("min", "max")):
-        return [f"Parameter '{name}' range guard requires 'min' or 'max'"]
-
-    numeric_value = _as_float(value)
-    if numeric_value is None:
-        return [f"Parameter '{name}' must be numeric to apply range guard"]
-
+        return None, [f"Parameter '{name}' range guard requires 'min' or 'max'"]
     numeric, errors = _coerce_guard_values(name, "range", bounds, _as_float)
     if errors:
-        return errors
+        return None, errors
+    return numeric, []
 
+
+def _resolve_range_value(name: str, value: Any) -> tuple[float | None, list[str]]:
+    numeric_value = _as_float(value)
+    if numeric_value is None:
+        return None, [f"Parameter '{name}' must be numeric to apply range guard"]
+    return numeric_value, []
+
+
+def _range_violation_messages(
+    name: str, numeric_value: float, numeric: Mapping[str, tuple[Any, float]]
+) -> list[str]:
     active = [
         (label, raw)
         for label, (raw, coerced) in numeric.items()
@@ -493,6 +496,25 @@ def _validate_range_guard(
         return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
     label, raw = active[0]
     return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+
+
+def _validate_range_guard(
+    name: str,
+    value: Any,
+    guards: Mapping[str, Any],
+    _resolved: Mapping[str, "ResolvedParameter"],
+) -> list[str]:
+    numeric, errors = _prepare_range_bounds(name, guards)
+    if numeric is None:
+        return errors
+    if errors:
+        return errors
+
+    numeric_value, value_errors = _resolve_range_value(name, value)
+    if value_errors:
+        return value_errors
+    assert numeric_value is not None
+    return _range_violation_messages(name, numeric_value, numeric)
 
 
 def _validate_datetime_window_guard(

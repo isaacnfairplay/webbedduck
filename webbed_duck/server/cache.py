@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import math
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import reduce
 from datetime import datetime, timedelta, timezone
@@ -14,6 +17,7 @@ from typing import Any, Callable, ClassVar, Iterable, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 
 
@@ -305,29 +309,194 @@ class CacheEntry:
     invariants: Mapping[str, tuple[str, ...]]
 
 
+class _BaseAdapter:
+    """Common utilities for `DataHandle` format adapters."""
+
+    def __init__(self, handle: "DataHandle") -> None:
+        self._handle = handle
+
+    @contextmanager
+    def open(self, *, page: int | None = None):
+        yield self._handle.to_arrow(page=page)
+
+
+class _ArrowAdapter(_BaseAdapter):
+    """Expose Arrow tables directly from the handle."""
+
+    pass
+
+
+class _ParquetAdapter(_BaseAdapter):
+    """Render Arrow tables into Parquet byte streams."""
+
+    @contextmanager
+    def open(self, *, page: int | None = None):
+        table = self._handle.to_arrow(page=page)
+        sink = pa.BufferOutputStream()
+        pq.write_table(table, sink)
+        buffer = sink.getvalue().to_pybytes()
+        stream = io.BytesIO(buffer)
+        try:
+            yield stream
+        finally:
+            stream.close()
+
+
+class _CsvAdapter(_BaseAdapter):
+    """Render Arrow tables into UTF-8 CSV streams."""
+
+    @contextmanager
+    def open(self, *, page: int | None = None):
+        table = self._handle.to_arrow(page=page)
+        sink = pa.BufferOutputStream()
+        pacsv.write_csv(table, sink)
+        buffer = sink.getvalue().to_pybytes()
+        stream = io.StringIO(buffer.decode("utf-8"))
+        try:
+            yield stream
+        finally:
+            stream.close()
+
+
+class _JsonAdapter(_BaseAdapter):
+    """Render Arrow tables into JSON text streams."""
+
+    @contextmanager
+    def open(self, *, page: int | None = None):
+        table = self._handle.to_arrow(page=page)
+        payload = json.dumps(table.to_pylist(), default=str)
+        stream = io.StringIO(payload)
+        try:
+            yield stream
+        finally:
+            stream.close()
+
+
+class DataHandle:
+    """Adapter-friendly view over cached query results."""
+
+    def __init__(self, table: pa.Table, *, page_size: int) -> None:
+        if page_size <= 0:
+            msg = "page_size must be a positive integer"
+            raise ValueError(msg)
+        self._table = table
+        self._page_size = page_size
+        self._adapters: Mapping[str, _BaseAdapter] = {
+            "arrow": _ArrowAdapter(self),
+            "parquet": _ParquetAdapter(self),
+            "csv": _CsvAdapter(self),
+            "json": _JsonAdapter(self),
+        }
+
+    @property
+    def table(self) -> pa.Table:
+        return self._table
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    @property
+    def row_count(self) -> int:
+        return self._table.num_rows
+
+    @property
+    def page_count(self) -> int:
+        if self.row_count == 0:
+            return 0
+        return math.ceil(self.row_count / self._page_size)
+
+    @property
+    def formats(self) -> tuple[str, ...]:
+        return tuple(sorted(self._adapters.keys()))
+
+    def to_arrow(self, *, page: int | None = None) -> pa.Table:
+        return self._slice_for_page(page)
+
+    def to_pylist(self, *, page: int | None = None) -> list[dict[str, Any]]:
+        return self.to_arrow(page=page).to_pylist()
+
+    @contextmanager
+    def open(self, format: str, *, page: int | None = None):
+        normalized = format.lower()
+        adapter = self._adapters.get(normalized)
+        if adapter is None:
+            msg = f"Unsupported format '{format}'"
+            raise ValueError(msg)
+        if page is not None and not isinstance(page, int):
+            msg = "page must be an integer when provided"
+            raise TypeError(msg)
+        with adapter.open(page=page) as stream:
+            yield stream
+
+    def _slice_for_page(self, page: int | None) -> pa.Table:
+        if page is None:
+            return self._table
+        if page < 0:
+            msg = "page must be greater than or equal to zero"
+            raise ValueError(msg)
+        if self._page_size <= 0:
+            return self._table
+        offset = page * self._page_size
+        if offset >= self.row_count:
+            msg = f"page {page} is out of range"
+            raise ValueError(msg)
+        length = min(self._page_size, self.row_count - offset)
+        return self._table.slice(offset, length)
+
+
+def _schema_summary(schema: pa.Schema) -> tuple[dict[str, str], ...]:
+    return tuple(
+        {"name": field.name, "type": str(field.type)} for field in schema
+    )
+
+
 @dataclass(frozen=True)
-class CacheResult:
+class ResponseEnvelope:
     """Immutable payload returned to callers after cache resolution."""
 
-    table: pa.Table
+    schema: tuple[dict[str, str], ...]
+    arrow_schema: pa.Schema = field(repr=False)
     row_count: int
-    from_cache: bool
-    from_superset: bool
-    entry_digest: str | None
-    requested_invariants: Mapping[str, tuple[str, ...]]
-    cached_invariants: Mapping[str, tuple[str, ...]]
-    created_at: datetime | None
-    expires_at: datetime | None
+    page_count: int
+    page_size: int
+    handle: DataHandle = field(repr=False)
+    from_cache: bool = False
+    from_superset: bool = False
+    entry_digest: str | None = None
+    requested_invariants: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    cached_invariants: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
         object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
 
-    def to_pylist(self) -> list[dict[str, Any]]:
-        return self.table.to_pylist()
+    @property
+    def table(self) -> pa.Table:
+        return self.handle.table
+
+    @property
+    def formats(self) -> tuple[str, ...]:
+        return self.handle.formats
+
+    def to_arrow(self, *, page: int | None = None) -> pa.Table:
+        return self.handle.to_arrow(page=page)
+
+    def to_pylist(self, *, page: int | None = None) -> list[dict[str, Any]]:
+        return self.handle.to_pylist(page=page)
+
+    @contextmanager
+    def open(self, format: str, *, page: int | None = None):
+        with self.handle.open(format, page=page) as stream:
+            yield stream
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self.table, name)
+        return getattr(self.handle.table, name)
+
+
+CacheResult = ResponseEnvelope
 
 
 class CacheStorage:
@@ -587,9 +756,14 @@ class Cache:
         from_cache: bool,
         from_superset: bool,
     ) -> CacheResult:
-        return CacheResult(
-            table=table,
+        handle = DataHandle(table, page_size=self._config.page_size)
+        return ResponseEnvelope(
+            schema=_schema_summary(table.schema),
+            arrow_schema=table.schema,
             row_count=table.num_rows,
+            page_count=handle.page_count,
+            page_size=self._config.page_size,
+            handle=handle,
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,
