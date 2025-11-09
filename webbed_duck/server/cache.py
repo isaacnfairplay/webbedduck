@@ -8,7 +8,7 @@ import json
 import io
 import shutil
 from dataclasses import dataclass, field
-from functools import reduce
+from functools import partial, reduce
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
@@ -322,6 +322,18 @@ def _slice_table(table: pa.Table, page_size: int, page: int | None) -> pa.Table:
     return table.slice(start, length)
 
 
+# Shared iterators and encoders for streaming adapters.
+
+def _csv_payload(table: pa.Table, *, include_header: bool) -> str:
+    sink = pa.BufferOutputStream()
+    pacsv.write_csv(
+        table,
+        sink,
+        write_options=pacsv.WriteOptions(include_header=include_header),
+    )
+    return sink.getvalue().to_pybytes().decode("utf-8")
+
+
 class _IterTextIO(io.TextIOBase):
     """Lazy text stream that pulls chunks from an iterator on demand."""
 
@@ -333,36 +345,32 @@ class _IterTextIO(io.TextIOBase):
     def readable(self) -> bool:  # pragma: no cover - trivial
         return True
 
+    def _read_all(self) -> str:
+        payload = self._buffer + "".join(self._iterator)
+        self._buffer = ""
+        self._iterator = iter(())
+        return payload
+
     def read(self, size: int = -1) -> str:  # pragma: no cover - exercised via callers
         if self._closed:
             raise ValueError("I/O operation on closed file.")
         if size is None or size < 0:
-            payload = self._buffer + "".join(self._iterator)
-            self._buffer = ""
-            self._iterator = iter(())
-            return payload
-
-        remaining = size
-        pieces: list[str] = []
-        if self._buffer:
-            take = self._buffer[:remaining]
-            pieces.append(take)
-            self._buffer = self._buffer[remaining:]
-            remaining -= len(take)
-            if remaining == 0:
-                return "".join(pieces)
-
-        while remaining > 0:
-            chunk = next(self._iterator, None)
-            if chunk is None:
+            return self._read_all()
+        head = self._buffer[:size]
+        pieces: list[str] = [head]
+        self._buffer = self._buffer[len(head):]
+        size -= len(head)
+        while size > 0:
+            try:
+                chunk = next(self._iterator)
+            except StopIteration:
                 break
-            if len(chunk) <= remaining:
-                pieces.append(chunk)
-                remaining -= len(chunk)
-            else:
-                pieces.append(chunk[:remaining])
-                self._buffer = chunk[remaining:]
-                remaining = 0
+            take = chunk[:size]
+            pieces.append(take)
+            size -= len(take)
+            if len(take) < len(chunk):
+                self._buffer = chunk[len(take):]
+                break
         return "".join(pieces)
 
     def close(self) -> None:  # pragma: no cover - trivial
@@ -383,6 +391,19 @@ class _BaseAdapter:
         self, handle: "DataHandle", page: int | None
     ):  # pragma: no cover - overridden by subclasses
         raise NotImplementedError
+
+
+class _TextAdapter(_BaseAdapter):
+    chunker: ClassVar[Callable[[pa.Table], Iterable[str]]]
+
+    @contextlib.contextmanager
+    def open(self, handle: "DataHandle", page: int | None):
+        table = handle.as_arrow(page)
+        stream = _IterTextIO(self.chunker(table))
+        try:
+            yield stream
+        finally:
+            stream.close()
 
 
 class _ArrowAdapter(_BaseAdapter):
@@ -415,85 +436,55 @@ class _ParquetAdapter(_BaseAdapter):
 
 def _iter_csv_chunks(table: pa.Table) -> Iterator[str]:
     if table.num_rows == 0:
-        sink = pa.BufferOutputStream()
-        pacsv.write_csv(table, sink)
-        payload = sink.getvalue().to_pybytes().decode("utf-8")
+        payload = _csv_payload(table, include_header=True)
         if payload:
             yield payload
         return
 
     include_header = True
     for batch in table.to_batches(max_chunksize=table.num_rows or None):
-        page_table = pa.Table.from_batches([batch])
-        sink = pa.BufferOutputStream()
-        pacsv.write_csv(
-            page_table,
-            sink,
-            write_options=pacsv.WriteOptions(include_header=include_header),
+        payload = _csv_payload(
+            pa.Table.from_batches([batch]), include_header=include_header
         )
         include_header = False
-        payload = sink.getvalue().to_pybytes().decode("utf-8")
         if payload:
             yield payload
 
 
-class _CsvAdapter(_BaseAdapter):
+class _CsvAdapter(_TextAdapter):
     format = "csv"
-
-    @contextlib.contextmanager
-    def open(self, handle: "DataHandle", page: int | None):
-        table = handle.as_arrow(page)
-        stream = _IterTextIO(_iter_csv_chunks(table))
-        try:
-            yield stream
-        finally:
-            stream.close()
+    chunker: ClassVar[Callable[[pa.Table], Iterable[str]]] = staticmethod(_iter_csv_chunks)
 
 
-def _iter_json_chunks(table: pa.Table) -> Iterator[str]:
+def _iter_json_payloads(lines: bool, table: pa.Table) -> Iterator[str]:
+    records = (
+        json.dumps(record, default=str)
+        for batch in table.to_batches(max_chunksize=table.num_rows or None)
+        for record in batch.to_pylist()
+    )
+    if lines:
+        for record in records:
+            yield record + "\n"
+        return
+
     yield "["
     first = True
-    for batch in table.to_batches(max_chunksize=table.num_rows or None):
-        for record in batch.to_pylist():
-            if not first:
-                yield ","
-            yield json.dumps(record, default=str)
-            first = False
+    for record in records:
+        if not first:
+            yield ","
+        yield record
+        first = False
     yield "]"
 
 
-class _JsonAdapter(_BaseAdapter):
+class _JsonAdapter(_TextAdapter):
     format = "json"
-
-    @contextlib.contextmanager
-    def open(self, handle: "DataHandle", page: int | None):
-        table = handle.as_arrow(page)
-        stream = _IterTextIO(_iter_json_chunks(table))
-        try:
-            yield stream
-        finally:
-            stream.close()
+    chunker: ClassVar[Callable[[pa.Table], Iterable[str]]] = staticmethod(partial(_iter_json_payloads, False))
 
 
-def _iter_json_lines(table: pa.Table) -> Iterator[str]:
-    if table.num_rows == 0:
-        return
-    for batch in table.to_batches(max_chunksize=table.num_rows or None):
-        for record in batch.to_pylist():
-            yield json.dumps(record, default=str) + "\n"
-
-
-class _JsonLinesAdapter(_BaseAdapter):
+class _JsonLinesAdapter(_TextAdapter):
     format = "jsonl"
-
-    @contextlib.contextmanager
-    def open(self, handle: "DataHandle", page: int | None):
-        table = handle.as_arrow(page)
-        stream = _IterTextIO(_iter_json_lines(table))
-        try:
-            yield stream
-        finally:
-            stream.close()
+    chunker: ClassVar[Callable[[pa.Table], Iterable[str]]] = staticmethod(partial(_iter_json_payloads, True))
 
 
 @dataclass(frozen=True)
