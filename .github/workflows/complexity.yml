@@ -57,13 +57,30 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const summary = fs.readFileSync('reports/summary.txt', 'utf8');
-            await github.rest.issues.createComment({
+            const marker = '<!-- complexity-metrics -->';
+            const summary = fs.readFileSync('reports/summary.txt', 'utf8').trim();
+            const body = [marker, '```', summary, '```'].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: summary,
             });
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
 
       - name: Clean up base worktree
         if: always()

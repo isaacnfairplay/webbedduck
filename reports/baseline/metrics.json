@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-11-09T09:47:16.489648+00:00",
+  "generated_at": "2025-11-09T09:38:54.090473+00:00",
   "root": "/workspace/webbedduck",
   "files": [
     {
@@ -925,16 +925,16 @@
     {
       "path": "webbed_duck/server/cache.py",
       "raw": {
-        "loc": 972,
-        "lloc": 623,
-        "sloc": 795,
-        "comments": 6,
+        "loc": 981,
+        "lloc": 636,
+        "sloc": 806,
+        "comments": 5,
         "multi": 12,
-        "blank": 150
+        "blank": 149
       },
       "cyclomatic": {
-        "total": 246.0,
-        "average": 2.6739130434782608,
+        "total": 252.0,
+        "average": 2.739130434782609,
         "functions": [
           {
             "name": "_utc_now",
@@ -1021,24 +1021,24 @@
             "kind": "function"
           },
           {
-            "name": "_csv_payload",
-            "lineno": 327,
-            "endline": 334,
-            "complexity": 1.0,
-            "kind": "function"
-          },
-          {
             "name": "_iter_csv_chunks",
-            "lineno": 437,
-            "endline": 451,
+            "lineno": 416,
+            "endline": 437,
             "complexity": 6.0,
             "kind": "function"
           },
           {
-            "name": "_iter_json_payloads",
-            "lineno": 459,
-            "endline": 477,
-            "complexity": 8.0,
+            "name": "_iter_json_chunks",
+            "lineno": 453,
+            "endline": 462,
+            "complexity": 5.0,
+            "kind": "function"
+          },
+          {
+            "name": "_iter_json_lines",
+            "lineno": 478,
+            "endline": 483,
+            "complexity": 5.0,
             "kind": "function"
           },
           {
@@ -1162,421 +1162,421 @@
           },
           {
             "name": "_IterTextIO",
-            "lineno": 337,
-            "endline": 381,
-            "complexity": 3.0,
+            "lineno": 325,
+            "endline": 373,
+            "complexity": 4.0,
             "kind": "class"
           },
           {
             "name": "__init__",
-            "lineno": 340,
-            "endline": 343,
+            "lineno": 328,
+            "endline": 331,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "readable",
-            "lineno": 345,
-            "endline": 346,
-            "complexity": 1.0,
-            "kind": "function"
-          },
-          {
-            "name": "_read_all",
-            "lineno": 348,
-            "endline": 352,
+            "lineno": 333,
+            "endline": 334,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "read",
-            "lineno": 354,
-            "endline": 374,
-            "complexity": 7.0,
+            "lineno": 336,
+            "endline": 366,
+            "complexity": 9.0,
             "kind": "function"
           },
           {
             "name": "close",
-            "lineno": 376,
-            "endline": 381,
+            "lineno": 368,
+            "endline": 373,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "_BaseAdapter",
-            "lineno": 384,
-            "endline": 393,
+            "lineno": 376,
+            "endline": 385,
             "complexity": 2.0,
             "kind": "class"
           },
           {
             "name": "open",
-            "lineno": 390,
-            "endline": 393,
-            "complexity": 1.0,
-            "kind": "function"
-          },
-          {
-            "name": "_TextAdapter",
-            "lineno": 396,
-            "endline": 406,
-            "complexity": 2.0,
-            "kind": "class"
-          },
-          {
-            "name": "open",
-            "lineno": 400,
-            "endline": 406,
+            "lineno": 382,
+            "endline": 385,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "_ArrowAdapter",
-            "lineno": 409,
-            "endline": 414,
+            "lineno": 388,
+            "endline": 393,
             "complexity": 2.0,
             "kind": "class"
           },
           {
             "name": "open",
-            "lineno": 413,
-            "endline": 414,
+            "lineno": 392,
+            "endline": 393,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "_ParquetAdapter",
-            "lineno": 417,
-            "endline": 434,
+            "lineno": 396,
+            "endline": 413,
             "complexity": 4.0,
             "kind": "class"
           },
           {
             "name": "open",
-            "lineno": 421,
-            "endline": 434,
+            "lineno": 400,
+            "endline": 413,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_CsvAdapter",
-            "lineno": 454,
-            "endline": 456,
-            "complexity": 1.0,
+            "lineno": 440,
+            "endline": 450,
+            "complexity": 2.0,
             "kind": "class"
+          },
+          {
+            "name": "open",
+            "lineno": 444,
+            "endline": 450,
+            "complexity": 1.0,
+            "kind": "function"
           },
           {
             "name": "_JsonAdapter",
-            "lineno": 480,
-            "endline": 482,
-            "complexity": 1.0,
+            "lineno": 465,
+            "endline": 475,
+            "complexity": 2.0,
             "kind": "class"
+          },
+          {
+            "name": "open",
+            "lineno": 469,
+            "endline": 475,
+            "complexity": 1.0,
+            "kind": "function"
           },
           {
             "name": "_JsonLinesAdapter",
-            "lineno": 485,
-            "endline": 487,
-            "complexity": 1.0,
+            "lineno": 486,
+            "endline": 496,
+            "complexity": 2.0,
             "kind": "class"
           },
           {
+            "name": "open",
+            "lineno": 490,
+            "endline": 496,
+            "complexity": 1.0,
+            "kind": "function"
+          },
+          {
             "name": "DataHandle",
-            "lineno": 491,
-            "endline": 575,
+            "lineno": 500,
+            "endline": 584,
             "complexity": 2.0,
             "kind": "class"
           },
           {
             "name": "__post_init__",
-            "lineno": 514,
-            "endline": 516,
+            "lineno": 523,
+            "endline": 525,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "page_size",
-            "lineno": 519,
-            "endline": 520,
+            "lineno": 528,
+            "endline": 529,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "row_count",
-            "lineno": 523,
-            "endline": 524,
+            "lineno": 532,
+            "endline": 533,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "page_count",
-            "lineno": 527,
-            "endline": 530,
+            "lineno": 536,
+            "endline": 539,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "schema",
-            "lineno": 533,
-            "endline": 534,
+            "lineno": 542,
+            "endline": 543,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "formats",
-            "lineno": 537,
-            "endline": 538,
+            "lineno": 546,
+            "endline": 547,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "table",
-            "lineno": 541,
-            "endline": 542,
+            "lineno": 550,
+            "endline": 551,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "as_arrow",
-            "lineno": 544,
-            "endline": 546,
+            "lineno": 553,
+            "endline": 555,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "open",
-            "lineno": 549,
-            "endline": 566,
+            "lineno": 558,
+            "endline": 575,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "_page_path",
-            "lineno": 568,
-            "endline": 575,
+            "lineno": 577,
+            "endline": 584,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "ResponseEnvelope",
-            "lineno": 579,
-            "endline": 631,
+            "lineno": 588,
+            "endline": 640,
             "complexity": 2.0,
             "kind": "class"
           },
           {
             "name": "__post_init__",
-            "lineno": 591,
-            "endline": 593,
+            "lineno": 600,
+            "endline": 602,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "row_count",
-            "lineno": 596,
-            "endline": 597,
+            "lineno": 605,
+            "endline": 606,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "schema",
-            "lineno": 600,
-            "endline": 601,
+            "lineno": 609,
+            "endline": 610,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "page_size",
-            "lineno": 604,
-            "endline": 605,
+            "lineno": 613,
+            "endline": 614,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "page_count",
-            "lineno": 608,
-            "endline": 609,
+            "lineno": 617,
+            "endline": 618,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "formats",
-            "lineno": 612,
-            "endline": 613,
+            "lineno": 621,
+            "endline": 622,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "table",
-            "lineno": 616,
-            "endline": 617,
+            "lineno": 625,
+            "endline": 626,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "to_pylist",
-            "lineno": 619,
-            "endline": 620,
+            "lineno": 628,
+            "endline": 629,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "as_arrow",
-            "lineno": 622,
-            "endline": 624,
+            "lineno": 631,
+            "endline": 633,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "open",
-            "lineno": 626,
-            "endline": 631,
+            "lineno": 635,
+            "endline": 640,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "CacheStorage",
-            "lineno": 638,
-            "endline": 778,
+            "lineno": 647,
+            "endline": 787,
             "complexity": 5.0,
             "kind": "class"
           },
           {
             "name": "__init__",
-            "lineno": 641,
-            "endline": 643,
+            "lineno": 650,
+            "endline": 652,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "_entry_dir",
-            "lineno": 645,
-            "endline": 646,
+            "lineno": 654,
+            "endline": 655,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "load_entry",
-            "lineno": 648,
-            "endline": 667,
+            "lineno": 657,
+            "endline": 676,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "write_entry",
-            "lineno": 670,
-            "endline": 717,
+            "lineno": 679,
+            "endline": 726,
             "complexity": 6.0,
             "kind": "function"
           },
           {
             "name": "read_entry",
-            "lineno": 720,
-            "endline": 727,
+            "lineno": 729,
+            "endline": 736,
             "complexity": 4.0,
             "kind": "function"
           },
           {
             "name": "evict",
-            "lineno": 729,
-            "endline": 732,
+            "lineno": 738,
+            "endline": 741,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "scan_entries",
-            "lineno": 734,
-            "endline": 743,
+            "lineno": 743,
+            "endline": 752,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_entry_from_metadata",
-            "lineno": 746,
-            "endline": 778,
+            "lineno": 755,
+            "endline": 787,
             "complexity": 9.0,
             "kind": "function"
           },
           {
             "name": "Cache",
-            "lineno": 782,
-            "endline": 971,
+            "lineno": 791,
+            "endline": 980,
             "complexity": 4.0,
             "kind": "class"
           },
           {
             "name": "__init__",
-            "lineno": 785,
-            "endline": 797,
+            "lineno": 794,
+            "endline": 806,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "fetch_or_populate",
-            "lineno": 799,
-            "endline": 844,
+            "lineno": 808,
+            "endline": 853,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_apply_filters",
-            "lineno": 847,
-            "endline": 849,
+            "lineno": 856,
+            "endline": 858,
             "complexity": 1.0,
             "kind": "function"
           },
           {
             "name": "_apply_invariant_filters",
-            "lineno": 851,
-            "endline": 858,
+            "lineno": 860,
+            "endline": 867,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_apply_constant_filters",
-            "lineno": 860,
-            "endline": 868,
+            "lineno": 869,
+            "endline": 877,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_filter_by_column",
-            "lineno": 871,
-            "endline": 880,
+            "lineno": 880,
+            "endline": 889,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_constant_predicate",
-            "lineno": 882,
-            "endline": 891,
+            "lineno": 891,
+            "endline": 900,
             "complexity": 3.0,
             "kind": "function"
           },
           {
             "name": "_build_result",
-            "lineno": 893,
-            "endline": 912,
+            "lineno": 902,
+            "endline": 921,
             "complexity": 2.0,
             "kind": "function"
           },
           {
             "name": "_find_superset_entry",
-            "lineno": 915,
-            "endline": 937,
+            "lineno": 924,
+            "endline": 946,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_non_invariant_equal",
-            "lineno": 940,
-            "endline": 950,
+            "lineno": 949,
+            "endline": 959,
             "complexity": 5.0,
             "kind": "function"
           },
           {
             "name": "_entry_is_superset",
-            "lineno": 952,
-            "endline": 971,
+            "lineno": 961,
+            "endline": 980,
             "complexity": 7.0,
             "kind": "function"
           }
@@ -1584,23 +1584,23 @@
       },
       "maintainability_index": 0.0,
       "halstead": {
-        "bugs": 0.7120415944361951,
-        "volume": 2136.1247833085854,
-        "length": 287,
-        "vocabulary": 174
+        "bugs": 0.7450814319529843,
+        "volume": 2235.2442958589527,
+        "length": 299,
+        "vocabulary": 178
       },
       "function_count": 92,
-      "expression_count": 2785
+      "expression_count": 2798
     }
   ],
   "totals": {
-    "non_space_sloc": 1924,
+    "non_space_sloc": 1935,
     "function_count": 183,
-    "expression_count": 6590,
-    "cyclomatic_total": 533.0,
-    "cyclomatic_average": 2.912568306010929,
+    "expression_count": 6603,
+    "cyclomatic_total": 539.0,
+    "cyclomatic_average": 2.9453551912568305,
     "maintainability_average": 64.04908859598048,
-    "halstead_bugs": 1.3789918970691561
+    "halstead_bugs": 1.4120317345859454
   },
   "duplicates": [
     {
@@ -1609,26 +1609,26 @@
         {
           "path": "webbed_duck/server/cache.py",
           "name": "row_count",
-          "lineno": 523,
-          "endline": 524
+          "lineno": 532,
+          "endline": 533
         },
         {
           "path": "webbed_duck/server/cache.py",
           "name": "row_count",
-          "lineno": 596,
-          "endline": 597
+          "lineno": 605,
+          "endline": 606
         },
         {
           "path": "webbed_duck/server/cache.py",
           "name": "page_size",
-          "lineno": 604,
-          "endline": 605
+          "lineno": 613,
+          "endline": 614
         },
         {
           "path": "webbed_duck/server/cache.py",
           "name": "page_count",
-          "lineno": 608,
-          "endline": 609
+          "lineno": 617,
+          "endline": 618
         }
       ],
       "count": 4
@@ -1653,6 +1653,30 @@
           "name": "_handle_number_format",
           "lineno": 149,
           "endline": 153
+        }
+      ],
+      "count": 3
+    },
+    {
+      "shape_id": "dfed8eac109fc87fdcf6237f5bf10a8a55def20f",
+      "occurrences": [
+        {
+          "path": "webbed_duck/server/cache.py",
+          "name": "open",
+          "lineno": 444,
+          "endline": 450
+        },
+        {
+          "path": "webbed_duck/server/cache.py",
+          "name": "open",
+          "lineno": 469,
+          "endline": 475
+        },
+        {
+          "path": "webbed_duck/server/cache.py",
+          "name": "open",
+          "lineno": 490,
+          "endline": 496
         }
       ],
       "count": 3
@@ -1699,14 +1723,14 @@
         {
           "path": "webbed_duck/server/cache.py",
           "name": "schema",
-          "lineno": 533,
-          "endline": 534
+          "lineno": 542,
+          "endline": 543
         },
         {
           "path": "webbed_duck/server/cache.py",
           "name": "schema",
-          "lineno": 600,
-          "endline": 601
+          "lineno": 609,
+          "endline": 610
         }
       ],
       "count": 2
@@ -1717,14 +1741,14 @@
         {
           "path": "webbed_duck/server/cache.py",
           "name": "<lambda>",
-          "lineno": 656,
-          "endline": 656
+          "lineno": 665,
+          "endline": 665
         },
         {
           "path": "webbed_duck/server/cache.py",
           "name": "<lambda>",
-          "lineno": 754,
-          "endline": 754
+          "lineno": 763,
+          "endline": 763
         }
       ],
       "count": 2

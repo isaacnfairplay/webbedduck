@@ -1,34 +1,40 @@
 {
   "before": {
-    "non_space_sloc": 1650,
-    "function_count": 138,
-    "expression_count": 5681,
-    "cyclomatic_total": 446.0,
-    "cyclomatic_average": 3.2318840579710146,
-    "maintainability_average": 64.41978585253919,
-    "halstead_bugs": 1.0662100697076335
+    "non_space_sloc": 1935,
+    "function_count": 183,
+    "expression_count": 6603,
+    "cyclomatic_total": 539.0,
+    "cyclomatic_average": 2.9453551912568305,
+    "maintainability_average": 64.04908859598048,
+    "halstead_bugs": 1.4120317345859454
   },
   "after": {
-    "non_space_sloc": 1648,
-    "function_count": 141,
-    "expression_count": 5674,
-    "cyclomatic_total": 443.0,
-    "cyclomatic_average": 3.141843971631206,
-    "maintainability_average": 64.47053384873861,
-    "halstead_bugs": 1.0662100697076335
+    "non_space_sloc": 1924,
+    "function_count": 183,
+    "expression_count": 6590,
+    "cyclomatic_total": 533.0,
+    "cyclomatic_average": 2.912568306010929,
+    "maintainability_average": 64.04908859598048,
+    "halstead_bugs": 1.3789918970691561
   },
   "delta": {
-    "non_space_sloc": -2,
-    "function_count": 3,
-    "expression_count": -7,
-    "cyclomatic_total": -3.0,
-    "cyclomatic_average": -0.09004008633980876,
-    "maintainability_average": 0.050747996199419276,
-    "halstead_bugs": 0.0
+    "non_space_sloc": -11,
+    "function_count": 0,
+    "expression_count": -13,
+    "cyclomatic_total": -6.0,
+    "cyclomatic_average": -0.032786885245901676,
+    "maintainability_average": 0.0,
+    "halstead_bugs": -0.033039837516789294
   },
   "files_changed": 1,
-  "functions_modified": 99,
+  "functions_modified": 126,
   "notable_modules": [
+    {
+      "path": "webbed_duck/server/cache.py",
+      "before": 0.7450814319529843,
+      "after": 0.7120415944361951,
+      "delta": -0.03303983751678918
+    },
     {
       "path": "scripts/generate_template_docs.py",
       "before": 0.005169925001442312,
@@ -49,14 +55,8 @@
     },
     {
       "path": "webbed_duck/_templating/binding.py",
-      "before": 0.4977126345429941,
-      "after": 0.4977126345429941,
-      "delta": 0.0
-    },
-    {
-      "path": "webbed_duck/_templating/errors.py",
-      "before": 0.0,
-      "after": 0.0,
+      "before": 0.523633296205645,
+      "after": 0.523633296205645,
       "delta": 0.0
     }
   ]

@@ -1,30 +1,30 @@
 Complexity Reduction Summary (Auto-Generated)
 ────────────────────────────────────────────────────────────
 Files changed: 1
-Functions modified: 99
-Non-space SLOC: 1650 → 1648  (Δ -2)
-Function count: 138 → 141
-Expression count: 5681 → 5674
+Functions modified: 126
+Non-space SLOC: 1935 → 1924  (Δ -11)
+Function count: 183 → 183
+Expression count: 6603 → 6590
 
 Radon Cyclomatic Complexity:
-  Total:   446 → 443  (Δ -3)
-  Average: 3.23 → 3.14
+  Total:   539 → 533  (Δ -6)
+  Average: 2.95 → 2.91
 
 Maintainability Index (avg):
-  64.42 → 64.47
+  64.05 → 64.05
 
 Halstead Bug Estimate:
-  Overall: 1.07 → 1.07
+  Overall: 1.41 → 1.38
   Notable modules:
+    webbed_duck/server/cache.py: 0.75 → 0.71
     scripts/generate_template_docs.py: 0.01 → 0.01
     webbed_duck/__init__.py: 0 → 0
     webbed_duck/_templating/__init__.py: 0 → 0
-    webbed_duck/_templating/binding.py: 0.50 → 0.50
-    webbed_duck/_templating/errors.py: 0 → 0
+    webbed_duck/_templating/binding.py: 0.52 → 0.52
 
 Generalized Refactor Patterns Applied:
-  - MappingProxyType normalization via _freeze_* helpers in webbed_duck/server/cache.py (12 sites)
-  - Shared TTL expiry guard _handle_expiry in webbed_duck/server/cache.py (2 sites)
+  - Text adapter context reuse in webbed_duck/server/cache.py (3 sites)
+  - Unified streaming chunk generators via partial JSON payload dispatch in webbed_duck/server/cache.py (2 sites)
 
 Validation:
   - Tests passing: auto

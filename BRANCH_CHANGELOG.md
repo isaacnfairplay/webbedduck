@@ -17,3 +17,10 @@
 - Encourage `ResponseEnvelope.as_arrow(page=...)` for PyArrow access, keep `ResponseEnvelope.open(...)` as a documented alias, and update docs/tests to rely on `envelope.data.open(...)` for file-backed formats.
 - Clarify `DataHandle.open` return types in docstrings and extend cache tests to assert JSONL output plus on-disk Parquet reuse.
 - Extract range guard preflight validation into a helper to reduce cyclomatic complexity while preserving existing error messaging.
+
+## Complexity-focused streaming refactors
+- Extract a shared `_TextAdapter` to manage CSV, JSON, and JSONL text streaming with one context manager.
+- Drive JSON and JSONL exports through a single `_iter_json_payloads` generator wired via partial-based dispatch.
+- Restructure `_IterTextIO.read` to use deterministic buffering loops, lowering cyclomatic complexity while preserving behaviour.
+- Teach the complexity workflow to refresh comments in place and annotate reports with applied refactor patterns.
+
