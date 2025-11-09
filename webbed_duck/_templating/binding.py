@@ -459,6 +459,24 @@ def _validate_length_guard(
     ]
 
 
+def _range_violation_messages(
+    name: str, numeric_value: float | int, numeric: Mapping[str, tuple[Any, float | int]]
+) -> list[str]:
+    active = [
+        (label, raw)
+        for label, (raw, coerced) in numeric.items()
+        if _BOUND_CHECKS[label][0](numeric_value, coerced)
+    ]
+    if not active:
+        return []
+    if {"min", "max"}.issubset(numeric):
+        min_raw, _ = numeric["min"]
+        max_raw, _ = numeric["max"]
+        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
+    label, raw = active[0]
+    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+
+
 def _validate_range_guard(
     name: str,
     value: Any,
@@ -480,19 +498,7 @@ def _validate_range_guard(
     if errors:
         return errors
 
-    active = [
-        (label, raw)
-        for label, (raw, coerced) in numeric.items()
-        if _BOUND_CHECKS[label][0](numeric_value, coerced)
-    ]
-    if not active:
-        return []
-    if {"min", "max"}.issubset(numeric):
-        min_raw, _ = numeric["min"]
-        max_raw, _ = numeric["max"]
-        return [f"Parameter '{name}' must be between {min_raw} and {max_raw}"]
-    label, raw = active[0]
-    return [f"Parameter '{name}' must be {_BOUND_CHECKS[label][1]} {raw}"]
+    return _range_violation_messages(name, numeric_value, numeric)
 
 
 def _validate_datetime_window_guard(
