@@ -1,29 +1,171 @@
 ================================================
   NLOC    CCN   token  PARAM  length  location  
 ------------------------------------------------
-       6      3     22      0       6 iter_cases@25-30@./scripts/generate_template_docs.py
-      28      3    142      2      28 render_case_markdown@33-60@./scripts/generate_template_docs.py
-       4      2     24      1       4 _format_json.default@66-69@./scripts/generate_template_docs.py
-       4      1     35      1       9 _format_json@63-71@./scripts/generate_template_docs.py
-       8      5     69      1       8 _normalise_for_json@74-81@./scripts/generate_template_docs.py
-      11      2     92      0      13 main@84-96@./scripts/generate_template_docs.py
-       2      1     18      2       2 __init__@21-22@./tests/server/test_cache.py
-       2      1     13      1       2 now@24-25@./tests/server/test_cache.py
-       2      1     27      2       2 advance@27-28@./tests/server/test_cache.py
-       7      3     42      1       7 _format_literal@31-37@./tests/server/test_cache.py
-      12      3     98      2      12 _build_duckdb_table@40-51@./tests/server/test_cache.py
-       2      1     17      1       2 tmp_cache_dir@55-56@./tests/server/test_cache.py
-      20      1    131      1      21 test_cache_key_deterministic_and_null_sentinel@59-79@./tests/server/test_cache.py
-       3      1     37      3       3 test_fetch_or_populate_persists_pages_and_enforces_ttl.runner@99-101@./tests/server/test_cache.py
-      52      1    457      1      63 test_fetch_or_populate_persists_pages_and_enforces_ttl@82-144@./tests/server/test_cache.py
-       3      1     37      3       3 test_invariant_filters_and_null_semantics.runner@170-172@./tests/server/test_cache.py
-      50      4    389      1      59 test_invariant_filters_and_null_semantics@147-205@./tests/server/test_cache.py
-       3      1     37      3       3 test_multi_value_invariant_superset_reuse_and_metadata.runner@233-235@./tests/server/test_cache.py
-      92      4    707      1     106 test_multi_value_invariant_superset_reuse_and_metadata@208-313@./tests/server/test_cache.py
-       3      1     37      3       3 test_case_insensitive_invariant_tokens.runner@336-338@./tests/server/test_cache.py
-      51      2    398      1      62 test_case_insensitive_invariant_tokens@316-377@./tests/server/test_cache.py
-       3      1     37      3       3 test_numeric_invariant_tokens_apply_column_type.runner@399-401@./tests/server/test_cache.py
-      33      1    259      1      41 test_numeric_invariant_tokens_apply_column_type@380-420@./tests/server/test_cache.py
+       2      1     19      0       4 build_report_request_context@124-127@./examples/request_constants.py
+       2      1     16      2       2 _format_slug@202-203@./examples/request_constants.py
+      42      8    187      0      45 _build_builtin_cases@209-253@./examples/request_constants.py
+       9      2     65      3       9 __init__@31-39@./webbed_duck/_templating/state.py
+       5      2     25      2       5 _ensure_allowed@41-45@./webbed_duck/_templating/state.py
+       3      1     26      2       3 __getitem__@47-49@./webbed_duck/_templating/state.py
+       2      2     36      3       2 get@51-52@./webbed_duck/_templating/state.py
+      16      1     92      1      16 __init__@71-86@./webbed_duck/_templating/state.py
+       2      1     16      1       2 get@88-89@./webbed_duck/_templating/state.py
+       2      1     24      2       2 set@91-92@./webbed_duck/_templating/state.py
+       4      2     29      1       4 ensure_mapping@95-98@./webbed_duck/_templating/state.py
+      39      4    292      1      45 prepare_context@101-145@./webbed_duck/_templating/state.py
+      10      5     67      1      10 _resolve_string_whitelist@148-157@./webbed_duck/_templating/state.py
+      26      4    162      3      28 from_manifest@48-75@./webbed_duck/_templating/binding.py
+      13      4    115      2      15 from_manifest@86-100@./webbed_duck/_templating/binding.py
+       2      1     25      2       2 resolve@102-103@./webbed_duck/_templating/binding.py
+      12      2     98      3      12 __init__@125-136@./webbed_duck/_templating/binding.py
+       2      1     18      2       2 __getitem__@138-139@./webbed_duck/_templating/binding.py
+       2      1     17      1       2 __iter__@141-142@./webbed_duck/_templating/binding.py
+       2      1     14      1       2 __len__@144-145@./webbed_duck/_templating/binding.py
+       2      1     17      1       4 configuration@148-151@./webbed_duck/_templating/binding.py
+       6      2     41      2       8 attach_configuration@153-160@./webbed_duck/_templating/binding.py
+       3      1     25      2       5 with_configuration@162-166@./webbed_duck/_templating/binding.py
+      57      9    291      3      65 from_manifest@169-233@./webbed_duck/_templating/binding.py
+       9      4     65      1      10 for_template@235-244@./webbed_duck/_templating/binding.py
+       9      7     78      2       9 for_binding@246-254@./webbed_duck/_templating/binding.py
+       2      1     17      1       2 template_consumed@257-258@./webbed_duck/_templating/binding.py
+       3      1     39      3       3 __init__@264-266@./webbed_duck/_templating/binding.py
+       4      1     33      2       4 __getitem__@268-271@./webbed_duck/_templating/binding.py
+       2      2     28      3       2 get@273-274@./webbed_duck/_templating/binding.py
+      13      5    114      3      13 _collect_unknown_parameters@277-289@./webbed_duck/_templating/binding.py
+      31     12    186      3      33 _coerce_value@292-324@./webbed_duck/_templating/binding.py
+      21      6    137      7      21 _guard_option@332-352@./webbed_duck/_templating/binding.py
+      16      4     91      3      16 _iter_simple_guard_errors@390-405@./webbed_duck/_templating/binding.py
+      22      5    119      4      23 _run_guards@410-432@./webbed_duck/_templating/binding.py
+      20      4    142      4      20 _coerce_guard_values@446-465@./webbed_duck/_templating/binding.py
+      16      5     99      4      17 _validate_length_guard@468-484@./webbed_duck/_templating/binding.py
+      16      5    123      3      16 _range_violation_messages@487-502@./webbed_duck/_templating/binding.py
+      13      5    104      4      14 _validate_range_guard@505-518@./webbed_duck/_templating/binding.py
+      28      8    123      4      28 _validate_datetime_window_guard._check_boundary@538-565@./webbed_duck/_templating/binding.py
+      24      6    132      4      54 _validate_datetime_window_guard@521-574@./webbed_duck/_templating/binding.py
+      42      6    173      3      46 _resolve_compare_configuration@577-622@./webbed_duck/_templating/binding.py
+      24      6    136      4      27 _validate_compare_guard@625-651@./webbed_duck/_templating/binding.py
+       7      3     37      1       7 _as_float@665-671@./webbed_duck/_templating/binding.py
+       7      3     37      1       7 _as_int@674-680@./webbed_duck/_templating/binding.py
+      22      7    115      4      22 _parse_datetime_for_guard@683-704@./webbed_duck/_templating/binding.py
+       6      3     48      2       6 _datetimes_mixed_timezone_awareness@707-712@./webbed_duck/_templating/binding.py
+       3      1     23      3       3 __init__@718-720@./webbed_duck/_templating/binding.py
+       2      1     24      3       2 compare@722-723@./webbed_duck/_templating/binding.py
+       6      2     30      3       6 message@725-730@./webbed_duck/_templating/binding.py
+       2      2     44      2       4 merge_formats@62-65@./webbed_duck/_templating/formatters.py
+       7      3     65      3       9 date_offset@68-76@./webbed_duck/_templating/formatters.py
+       4      2     30      1       4 _ensure_datetime@79-82@./webbed_duck/_templating/formatters.py
+      11      6    108      3      17 format_date@85-101@./webbed_duck/_templating/formatters.py
+      15      6    129      3      22 format_timestamp@104-125@./webbed_duck/_templating/formatters.py
+      17      6    110      3      23 format_number@128-150@./webbed_duck/_templating/formatters.py
+      13      2     85      1      16 stringify@153-168@./webbed_duck/_templating/formatters.py
+       7      1     47      1       7 __post_init__@23-29@./webbed_duck/_templating/parameters.py
+       8      2     49      1      10 resolve@31-40@./webbed_duck/_templating/parameters.py
+       6      1     43      2       8 StringParameterWhitelist@43-50@./webbed_duck/_templating/parameters.py
+       7      3     51      2       7 _freeze_iterable@53-59@./webbed_duck/_templating/parameters.py
+      10      1     88      2      10 __init__@33-42@./webbed_duck/_templating/renderer.py
+       4      1     35      1       4 render.replace@45-48@./webbed_duck/_templating/renderer.py
+       3      1     24      2       7 render@44-50@./webbed_duck/_templating/renderer.py
+      10      6     80      2      11 _evaluate_expression@52-62@./webbed_duck/_templating/renderer.py
+       8      2     47      2       8 _resolve_path@64-71@./webbed_duck/_templating/renderer.py
+      19      7    147      2      19 _eval_ast@73-91@./webbed_duck/_templating/renderer.py
+      10      4     60      3      10 _resolve_getattr@93-102@./webbed_duck/_templating/renderer.py
+       8      3     44      3       8 _resolve_getitem@104-111@./webbed_duck/_templating/renderer.py
+      19      9    203      3      22 _apply_modifier@113-134@./webbed_duck/_templating/renderer.py
+       5      3     51      4       5 _handle_coalesce@136-140@./webbed_duck/_templating/renderer.py
+       4      1     35      4       4 _handle_date_offset@142-145@./webbed_duck/_templating/renderer.py
+       5      2     34      2       5 _literal_eval@147-151@./webbed_duck/_templating/renderer.py
+       2      1     15      0       2 _utc_now@27-28@./webbed_duck/server/cache.py
+       6      4     32      1       6 _decode_null@31-36@./webbed_duck/server/cache.py
+       2      2     41      1       2 _freeze_str_mapping@39-40@./webbed_duck/server/cache.py
+       4      2     62      1       4 _freeze_token_mapping@43-46@./webbed_duck/server/cache.py
+       7      2     37      3       7 _handle_expiry@49-55@./webbed_duck/server/cache.py
+       6      3     53      1       6 _stringify@58-63@./webbed_duck/server/cache.py
+      10      4     70      1      10 _normalize_items@66-75@./webbed_duck/server/cache.py
+      10      4    129      1      10 _decode_entry_metadata@78-87@./webbed_duck/server/cache.py
+       6      3     44      1       6 _ensure_sequence@90-95@./webbed_duck/server/cache.py
+      12      3     82      4      12 _encode_constant_value@98-109@./webbed_duck/server/cache.py
+      11      1     83      3      11 _compute_digest@112-122@./webbed_duck/server/cache.py
+      10      5     72      1      10 _ensure_arrow_table@125-134@./webbed_duck/server/cache.py
+       2      2     23      1       2 __post_init__@146-147@./webbed_duck/server/cache.py
+      14      5     95      2      14 normalize@149-162@./webbed_duck/server/cache.py
+       9      4     49      2       9 _normalize_candidate@164-172@./webbed_duck/server/cache.py
+       4      2     31      2       4 encode@174-177@./webbed_duck/server/cache.py
+       7      3     65      3       7 apply@179-185@./webbed_duck/server/cache.py
+      16      6    109      3      16 _predicate_for@187-202@./webbed_duck/server/cache.py
+      11      5    107      3      11 _membership_predicate@204-214@./webbed_duck/server/cache.py
+      12      3     79      4      12 _include_nulls@216-227@./webbed_duck/server/cache.py
+       9      3     70      1       9 __post_init__@239-247@./webbed_duck/server/cache.py
+      30      7    218      5      30 from_parts@268-297@./webbed_duck/server/cache.py
+       2      1     16      1       2 parameter_values@300-301@./webbed_duck/server/cache.py
+       2      1     16      1       2 constant_values@304-305@./webbed_duck/server/cache.py
+       2      1     21      1       2 invariant_tokens@308-309@./webbed_duck/server/cache.py
+      10      4     78      3      10 _slice_table@325-334@./webbed_duck/server/cache.py
+       8      1     59      2       8 _csv_payload@339-346@./webbed_duck/server/cache.py
+       4      1     39      2       4 __init__@352-355@./webbed_duck/server/cache.py
+       2      1      9      1       2 readable@357-358@./webbed_duck/server/cache.py
+       5      1     37      1       5 _read_all@360-364@./webbed_duck/server/cache.py
+      21      7    147      2      21 read@366-386@./webbed_duck/server/cache.py
+       6      2     39      1       6 close@388-393@./webbed_duck/server/cache.py
+       4      1     17      3       4 open@402-405@./webbed_duck/server/cache.py
+       7      2     45      3       7 open@412-418@./webbed_duck/server/cache.py
+       2      1     22      3       2 open@425-426@./webbed_duck/server/cache.py
+      13      4     94      3      14 open@433-446@./webbed_duck/server/cache.py
+      14      6     83      1      15 _iter_csv_chunks@449-463@./webbed_duck/server/cache.py
+      18      8     91      2      19 _iter_json_payloads@471-489@./webbed_duck/server/cache.py
+       3      2     19      1       3 __post_init__@526-528@./webbed_duck/server/cache.py
+       2      1     11      1       2 page_size@531-532@./webbed_duck/server/cache.py
+       2      1     13      1       2 row_count@535-536@./webbed_duck/server/cache.py
+       4      2     29      1       4 page_count@539-542@./webbed_duck/server/cache.py
+       2      1     15      1       2 schema@545-546@./webbed_duck/server/cache.py
+       2      1     22      1       2 formats@549-550@./webbed_duck/server/cache.py
+       2      1     13      1       2 table@553-554@./webbed_duck/server/cache.py
+       2      1     31      2       3 as_arrow@556-558@./webbed_duck/server/cache.py
+      10      2     64      3      18 open@561-578@./webbed_duck/server/cache.py
+       8      4     52      2       8 _page_path@580-587@./webbed_duck/server/cache.py
+       3      1     37      1       3 __post_init__@611-613@./webbed_duck/server/cache.py
+       4      2     32      2       4 __getattr__@615-618@./webbed_duck/server/cache.py
+       2      1     17      1       2 table@621-622@./webbed_duck/server/cache.py
+       2      1     36      2       2 to_pylist@624-625@./webbed_duck/server/cache.py
+       2      1     27      2       3 as_arrow@627-629@./webbed_duck/server/cache.py
+       4      1     42      3       6 open@631-636@./webbed_duck/server/cache.py
+       3      1     30      2       3 __init__@646-648@./webbed_duck/server/cache.py
+       2      1     19      2       2 _entry_dir@650-651@./webbed_duck/server/cache.py
+      20      3    119      3      20 load_entry@653-672@./webbed_duck/server/cache.py
+      49      6    308      7      49 write_entry@674-722@./webbed_duck/server/cache.py
+       5      4     68      2       5 read_entry@724-728@./webbed_duck/server/cache.py
+       3      2     33      2       3 evict@730-732@./webbed_duck/server/cache.py
+       6      3     54      3       6 scan_entries@734-739@./webbed_duck/server/cache.py
+      30      7    221      4      30 _entry_from_metadata@741-770@./webbed_duck/server/cache.py
+      13      3    100      6      13 __init__@776-788@./webbed_duck/server/cache.py
+      45      3    260      2      47 fetch_or_populate@790-836@./webbed_duck/server/cache.py
+       3      1     38      3       3 _apply_filters@838-840@./webbed_duck/server/cache.py
+       8      3     63      3       8 _apply_invariant_filters@842-849@./webbed_duck/server/cache.py
+      10      3     56      3      10 _apply_constant_filters@851-860@./webbed_duck/server/cache.py
+      10      3     76      3      10 _filter_by_column@862-871@./webbed_duck/server/cache.py
+      10      3     83      3      10 _constant_predicate@873-882@./webbed_duck/server/cache.py
+      21      2    110      6      21 _build_result@884-904@./webbed_duck/server/cache.py
+      24      5    111      3      24 _find_superset_entry@906-929@./webbed_duck/server/cache.py
+      11      5     85      3      11 _non_invariant_equal@931-941@./webbed_duck/server/cache.py
+      21      7    147      6      21 _entry_is_superset@943-963@./webbed_duck/server/cache.py
+       2      1     21      1       4 set_request_context@14-17@./webbed_duck/constants.py
+       6      2     52      2      18 apply_constants@20-37@./webbed_duck/constants.py
+       2      1     18      2       2 __init__@22-23@./tests/server/test_cache.py
+       2      1     13      1       2 now@25-26@./tests/server/test_cache.py
+       2      1     27      2       2 advance@28-29@./tests/server/test_cache.py
+       7      3     42      1       7 _format_literal@32-38@./tests/server/test_cache.py
+      12      3     98      2      12 _build_duckdb_table@41-52@./tests/server/test_cache.py
+       2      1     17      1       2 tmp_cache_dir@56-57@./tests/server/test_cache.py
+      20      1    131      1      21 test_cache_key_deterministic_and_null_sentinel@60-80@./tests/server/test_cache.py
+       3      1     37      3       3 test_fetch_or_populate_persists_pages_and_enforces_ttl.runner@100-102@./tests/server/test_cache.py
+      74      5    728      1      87 test_fetch_or_populate_persists_pages_and_enforces_ttl@83-169@./tests/server/test_cache.py
+       3      1     37      3       3 test_invariant_filters_and_null_semantics.runner@195-197@./tests/server/test_cache.py
+      50      4    389      1      59 test_invariant_filters_and_null_semantics@172-230@./tests/server/test_cache.py
+       3      1     37      3       3 test_multi_value_invariant_superset_reuse_and_metadata.runner@258-260@./tests/server/test_cache.py
+      95      4    737      1     109 test_multi_value_invariant_superset_reuse_and_metadata@233-341@./tests/server/test_cache.py
+       3      1     37      3       3 test_case_insensitive_invariant_tokens.runner@364-366@./tests/server/test_cache.py
+      51      2    398      1      62 test_case_insensitive_invariant_tokens@344-405@./tests/server/test_cache.py
+       3      1     37      3       3 test_numeric_invariant_tokens_apply_column_type.runner@427-429@./tests/server/test_cache.py
+      33      1    259      1      41 test_numeric_invariant_tokens_apply_column_type@408-448@./tests/server/test_cache.py
        2      1     21      1       2 build_validation@17-18@./tests/params/test_binding.py
       36      1    203      1      44 test_parameter_binding_coercion_and_defaults@21-64@./tests/params/test_binding.py
       21      1    100      0      25 test_parameter_binding_tracks_template_usage_via_renderer@67-91@./tests/params/test_binding.py
@@ -51,9 +193,6 @@
        3      1     28      3       3 test_all_known_date_formats@99-101@./tests/test_constants_apply.py
        3      1     28      3       3 test_all_known_timestamp_formats@108-110@./tests/test_constants_apply.py
        4      2     37      3       4 test_common_number_formats@117-120@./tests/test_constants_apply.py
-       2      1     19      0       4 build_report_request_context@124-127@./examples/request_constants.py
-       2      1     16      2       2 _format_slug@202-203@./examples/request_constants.py
-      42      8    187      0      45 _build_builtin_cases@209-253@./examples/request_constants.py
        6      4     55      1       6 iter_python_files@35-40@./tools/complexity_report.py
       15      7    155      1      15 _normalized_shape@43-57@./tools/complexity_report.py
       94     20    716      1     102 collect_metrics@60-161@./tools/complexity_report.py
@@ -67,157 +206,39 @@
        8      1    110      1       8 command_compare@328-335@./tools/complexity_report.py
       15      1    144      0      18 build_parser@338-355@./tools/complexity_report.py
        4      1     35      1       4 main@358-361@./tools/complexity_report.py
-       2      1     15      0       2 _utc_now@23-24@./webbed_duck/server/cache.py
-       6      4     32      1       6 _decode_null@27-32@./webbed_duck/server/cache.py
-       6      3     53      1       6 _stringify@35-40@./webbed_duck/server/cache.py
-      10      4     70      1      10 _normalize_items@43-52@./webbed_duck/server/cache.py
-       6      3     44      1       6 _ensure_sequence@55-60@./webbed_duck/server/cache.py
-      12      3     82      4      12 _encode_constant_value@63-74@./webbed_duck/server/cache.py
-      11      1     83      3      11 _compute_digest@77-87@./webbed_duck/server/cache.py
-      10      5     72      1      10 _ensure_arrow_table@90-99@./webbed_duck/server/cache.py
-       2      2     23      1       2 __post_init__@111-112@./webbed_duck/server/cache.py
-      14      5     95      2      14 normalize@114-127@./webbed_duck/server/cache.py
-       9      4     49      2       9 _normalize_candidate@129-137@./webbed_duck/server/cache.py
-       4      2     31      2       4 encode@139-142@./webbed_duck/server/cache.py
-       7      3     65      3       7 apply@144-150@./webbed_duck/server/cache.py
-      16      6    109      3      16 _predicate_for@152-167@./webbed_duck/server/cache.py
-      11      5    107      3      11 _membership_predicate@169-179@./webbed_duck/server/cache.py
-      12      3     79      4      12 _include_nulls@181-192@./webbed_duck/server/cache.py
-       9      3     73      1       9 __post_init__@204-212@./webbed_duck/server/cache.py
-      30      8    235      5      30 from_parts@233-262@./webbed_duck/server/cache.py
-       2      1     16      1       2 parameter_values@265-266@./webbed_duck/server/cache.py
-       2      1     16      1       2 constant_values@269-270@./webbed_duck/server/cache.py
-       2      1     21      1       2 invariant_tokens@273-274@./webbed_duck/server/cache.py
-       5      3     83      1       5 __post_init__@303-307@./webbed_duck/server/cache.py
-       2      1     23      1       2 to_pylist@309-310@./webbed_duck/server/cache.py
-       2      1     20      2       2 __getattr__@312-313@./webbed_duck/server/cache.py
-       3      1     30      2       3 __init__@319-321@./webbed_duck/server/cache.py
-       2      1     19      2       2 _entry_dir@323-324@./webbed_duck/server/cache.py
-      24      4    157      3      24 load_entry@326-349@./webbed_duck/server/cache.py
-      47      7    317      7      47 write_entry@351-397@./webbed_duck/server/cache.py
-       8      4     72      2       8 read_entry@399-406@./webbed_duck/server/cache.py
-       4      2     32      2       4 evict@408-411@./webbed_duck/server/cache.py
-      11      3     57      3      11 scan_entries@413-423@./webbed_duck/server/cache.py
-      35      8    296      4      35 _entry_from_metadata@425-459@./webbed_duck/server/cache.py
-      13      3    100      6      13 __init__@465-477@./webbed_duck/server/cache.py
-      45      3    260      2      47 fetch_or_populate@479-525@./webbed_duck/server/cache.py
-       3      1     38      3       3 _apply_filters@527-529@./webbed_duck/server/cache.py
-       8      3     63      3       8 _apply_invariant_filters@531-538@./webbed_duck/server/cache.py
-      10      3     56      3      10 _apply_constant_filters@540-549@./webbed_duck/server/cache.py
-      10      3     76      3      10 _filter_by_column@551-560@./webbed_duck/server/cache.py
-      10      3     83      3      10 _constant_predicate@562-571@./webbed_duck/server/cache.py
-      24      2    109      6      24 _build_result@573-596@./webbed_duck/server/cache.py
-      24      5    111      3      24 _find_superset_entry@598-621@./webbed_duck/server/cache.py
-      11      5     85      3      11 _non_invariant_equal@623-633@./webbed_duck/server/cache.py
-      21      7    147      6      21 _entry_is_superset@635-655@./webbed_duck/server/cache.py
-       9      2     65      3       9 __init__@31-39@./webbed_duck/_templating/state.py
-       5      2     25      2       5 _ensure_allowed@41-45@./webbed_duck/_templating/state.py
-       3      1     26      2       3 __getitem__@47-49@./webbed_duck/_templating/state.py
-       2      2     36      3       2 get@51-52@./webbed_duck/_templating/state.py
-      16      1     92      1      16 __init__@71-86@./webbed_duck/_templating/state.py
-       2      1     16      1       2 get@88-89@./webbed_duck/_templating/state.py
-       2      1     24      2       2 set@91-92@./webbed_duck/_templating/state.py
-       4      2     29      1       4 ensure_mapping@95-98@./webbed_duck/_templating/state.py
-      39      4    292      1      45 prepare_context@101-145@./webbed_duck/_templating/state.py
-      10      5     67      1      10 _resolve_string_whitelist@148-157@./webbed_duck/_templating/state.py
-       7      1     47      1       7 __post_init__@23-29@./webbed_duck/_templating/parameters.py
-       8      2     49      1      10 resolve@31-40@./webbed_duck/_templating/parameters.py
-       6      1     43      2       8 StringParameterWhitelist@43-50@./webbed_duck/_templating/parameters.py
-       7      3     51      2       7 _freeze_iterable@53-59@./webbed_duck/_templating/parameters.py
-      26      4    162      3      28 from_manifest@46-73@./webbed_duck/_templating/binding.py
-      13      4    115      2      15 from_manifest@84-98@./webbed_duck/_templating/binding.py
-       2      1     25      2       2 resolve@100-101@./webbed_duck/_templating/binding.py
-      12      2     98      3      12 __init__@119-130@./webbed_duck/_templating/binding.py
-       2      1     18      2       2 __getitem__@132-133@./webbed_duck/_templating/binding.py
-       2      1     17      1       2 __iter__@135-136@./webbed_duck/_templating/binding.py
-       2      1     14      1       2 __len__@138-139@./webbed_duck/_templating/binding.py
-       2      1     17      1       4 configuration@142-145@./webbed_duck/_templating/binding.py
-       6      2     41      2       8 attach_configuration@147-154@./webbed_duck/_templating/binding.py
-       3      1     25      2       5 with_configuration@156-160@./webbed_duck/_templating/binding.py
-      57      9    295      3      65 from_manifest@163-227@./webbed_duck/_templating/binding.py
-       4      1     31      2       4 for_template.__getitem__@242-245@./webbed_duck/_templating/binding.py
-       4      2     29      3       4 for_template.get@247-250@./webbed_duck/_templating/binding.py
-       2      1     20      2       2 for_template.__contains__@252-253@./webbed_duck/_templating/binding.py
-      15      4     89      1      28 for_template@229-256@./webbed_duck/_templating/binding.py
-       9      7     78      2       9 for_binding@258-266@./webbed_duck/_templating/binding.py
-       2      1     17      1       2 template_consumed@269-270@./webbed_duck/_templating/binding.py
-      16      5    113      3      16 _collect_unknown_parameters@273-288@./webbed_duck/_templating/binding.py
-      22      7    109      3      24 _coerce_value@291-314@./webbed_duck/_templating/binding.py
-      14      5     96      1      14 _coerce_boolean@317-330@./webbed_duck/_templating/binding.py
-      21      4     79      4      22 _run_guards@333-354@./webbed_duck/_templating/binding.py
-      15      5     91      4      15 _validate_choices_guard@357-371@./webbed_duck/_templating/binding.py
-      16      5     99      4      16 _validate_regex_guard@374-389@./webbed_duck/_templating/binding.py
-       9      3     75      3       9 _guard_mapping@392-400@./webbed_duck/_templating/binding.py
-      20      4    142      4      20 _coerce_guard_values@414-433@./webbed_duck/_templating/binding.py
-      21      7    123      4      24 _validate_length_guard@436-459@./webbed_duck/_templating/binding.py
-      30     11    208      4      34 _validate_range_guard@462-495@./webbed_duck/_templating/binding.py
-      20      7     97      4      20 _validate_datetime_window_guard._check_boundary@523-542@./webbed_duck/_templating/binding.py
-      31      8    156      4      54 _validate_datetime_window_guard@498-551@./webbed_duck/_templating/binding.py
-      41     11    207      4      48 _validate_compare_guard@554-601@./webbed_duck/_templating/binding.py
-       7      3     37      1       7 _as_float@604-610@./webbed_duck/_templating/binding.py
-       7      3     37      1       7 _as_int@613-619@./webbed_duck/_templating/binding.py
-      22      7    115      4      22 _parse_datetime_for_guard@622-643@./webbed_duck/_templating/binding.py
-       4      2     30      1       4 _format_datetime_boundary@646-649@./webbed_duck/_templating/binding.py
-       6      3     48      2       6 _datetimes_mixed_timezone_awareness@652-657@./webbed_duck/_templating/binding.py
-       3      1     23      3       3 __init__@663-665@./webbed_duck/_templating/binding.py
-       2      1     24      3       2 compare@667-668@./webbed_duck/_templating/binding.py
-       6      2     30      3       6 message@670-675@./webbed_duck/_templating/binding.py
-       2      2     44      2       4 merge_formats@62-65@./webbed_duck/_templating/formatters.py
-       7      3     65      3       9 date_offset@68-76@./webbed_duck/_templating/formatters.py
-       4      2     30      1       4 _ensure_datetime@79-82@./webbed_duck/_templating/formatters.py
-      11      6    108      3      17 format_date@85-101@./webbed_duck/_templating/formatters.py
-      15      6    129      3      22 format_timestamp@104-125@./webbed_duck/_templating/formatters.py
-      17      6    110      3      23 format_number@128-150@./webbed_duck/_templating/formatters.py
-      13      2     85      1      16 stringify@153-168@./webbed_duck/_templating/formatters.py
-      13      1    106      2      13 __init__@27-39@./webbed_duck/_templating/renderer.py
-       4      1     35      1       4 render.replace@42-45@./webbed_duck/_templating/renderer.py
-       3      1     24      2       7 render@41-47@./webbed_duck/_templating/renderer.py
-      10      6     80      2      11 _evaluate_expression@49-59@./webbed_duck/_templating/renderer.py
-       8      2     47      2       8 _resolve_path@61-68@./webbed_duck/_templating/renderer.py
-      19      7    147      2      19 _eval_ast@70-88@./webbed_duck/_templating/renderer.py
-      10      4     60      3      10 _resolve_getattr@90-99@./webbed_duck/_templating/renderer.py
-       8      3     44      3       8 _resolve_getitem@101-108@./webbed_duck/_templating/renderer.py
-      14      7    147      3      15 _apply_modifier@110-124@./webbed_duck/_templating/renderer.py
-       5      3     51      4       5 _handle_coalesce@126-130@./webbed_duck/_templating/renderer.py
-       4      1     35      4       4 _handle_date_offset@132-135@./webbed_duck/_templating/renderer.py
-       5      2     57      4       5 _handle_date_format@137-141@./webbed_duck/_templating/renderer.py
-       5      2     57      4       5 _handle_timestamp_format@143-147@./webbed_duck/_templating/renderer.py
-       5      2     57      4       5 _handle_number_format@149-153@./webbed_duck/_templating/renderer.py
-       5      2     34      2       5 _literal_eval@155-159@./webbed_duck/_templating/renderer.py
-       2      1     21      1       4 set_request_context@14-17@./webbed_duck/constants.py
-       6      2     52      2      18 apply_constants@20-37@./webbed_duck/constants.py
+       6      3     22      0       6 iter_cases@25-30@./scripts/generate_template_docs.py
+      28      3    142      2      28 render_case_markdown@33-60@./scripts/generate_template_docs.py
+       4      2     24      1       4 _format_json.default@66-69@./scripts/generate_template_docs.py
+       4      1     35      1       9 _format_json@63-71@./scripts/generate_template_docs.py
+       8      5     69      1       8 _normalise_for_json@74-81@./scripts/generate_template_docs.py
+      11      2     92      0      13 main@84-96@./scripts/generate_template_docs.py
 19 file analyzed.
 ==============================================================
 NLOC    Avg.NLOC  AvgCCN  Avg.token  function_cnt    file
 --------------------------------------------------------------
-     77      10.2     2.7       64.0         6     ./scripts/generate_template_docs.py
-    346      20.0     1.6      161.2        17     ./tests/server/test_cache.py
-    295      20.4     1.0       97.5        14     ./tests/params/test_binding.py
-     88       4.2     1.1       28.5        13     ./tests/test_constants_apply.py
-      6       0.0     0.0        0.0         0     ./tests/conftest.py
      20       0.0     0.0        0.0         0     ./examples/__init__.py
     221      15.3     3.3       74.0         3     ./examples/request_constants.py
-    310      21.7     5.0      172.8        13     ./tools/complexity_report.py
-      2       0.0     0.0        0.0         0     ./webbed_duck/server/__init__.py
-    567      11.7     3.3       83.8        43     ./webbed_duck/server/cache.py
-      2       0.0     0.0        0.0         0     ./webbed_duck/_templating/errors.py
     122       9.2     2.1       67.2        10     ./webbed_duck/_templating/state.py
-     20       0.0     0.0        0.0         0     ./webbed_duck/_templating/__init__.py
-     39       7.0     1.8       47.5         4     ./webbed_duck/_templating/parameters.py
-    555      13.1     3.9       79.7        38     ./webbed_duck/_templating/binding.py
+    604      13.4     3.8       83.1        37     ./webbed_duck/_templating/binding.py
     118       9.9     3.9       81.6         7     ./webbed_duck/_templating/formatters.py
-    133       7.9     2.9       65.4        15     ./webbed_duck/_templating/renderer.py
-      2       0.0     0.0        0.0         0     ./webbed_duck/__init__.py
+      2       0.0     0.0        0.0         0     ./webbed_duck/_templating/errors.py
+     39       7.0     1.8       47.5         4     ./webbed_duck/_templating/parameters.py
+    125       8.8     3.3       70.7        12     ./webbed_duck/_templating/renderer.py
+     20       0.0     0.0        0.0         0     ./webbed_duck/_templating/__init__.py
+    787       9.2     2.8       66.0        73     ./webbed_duck/server/cache.py
+      9       0.0     0.0        0.0         0     ./webbed_duck/server/__init__.py
      13       4.0     1.5       36.5         2     ./webbed_duck/constants.py
+      2       0.0     0.0        0.0         0     ./webbed_duck/__init__.py
+    372      21.5     1.9      178.9        17     ./tests/server/test_cache.py
+    295      20.4     1.0       97.5        14     ./tests/params/test_binding.py
+      6       0.0     0.0        0.0         0     ./tests/conftest.py
+     88       4.2     1.1       28.5        13     ./tests/test_constants_apply.py
+    310      21.7     5.0      172.8        13     ./tools/complexity_report.py
+     77      10.2     2.7       64.0         6     ./scripts/generate_template_docs.py
 
-===========================================================================================================
-!!!! Warnings (cyclomatic_complexity > 15 or length > 1000 or nloc > 1000000 or parameter_count > 100) !!!!
-================================================
-  NLOC    CCN   token  PARAM  length  location  
-------------------------------------------------
-      94     20    716      1     102 collect_metrics@60-161@./tools/complexity_report.py
-      63     19    470      2      71 compare_metrics@197-267@./tools/complexity_report.py
+===============================================================================================================
+No thresholds exceeded (cyclomatic_complexity > 50 or length > 1000 or nloc > 1000000 or parameter_count > 100)
 ==========================================================================================
 Total nloc   Avg.NLOC  AvgCCN  Avg.token   Fun Cnt  Warning cnt   Fun Rt   nloc Rt
 ------------------------------------------------------------------------------------------
-      2936      12.9     2.9       88.9      185            2      0.01    0.07
+      3230      12.1     2.8       84.7      211            0      0.00    0.00

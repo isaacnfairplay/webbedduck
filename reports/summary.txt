@@ -1,26 +1,26 @@
 Complexity Reduction Summary (Auto-Generated)
 ────────────────────────────────────────────────────────────
-Files changed: 3
-Functions modified: 174
-Non-space SLOC: 1920 → 1918  (Δ -2)
-Function count: 185 → 177
-Expression count: 6617 → 6601
+Files changed: 2
+Functions modified: 49
+Non-space SLOC: 1918 → 1911  (Δ -7)
+Function count: 177 → 180
+Expression count: 6601 → 6617
 
 Radon Cyclomatic Complexity:
-  Total:   511 → 517  (Δ 6)
-  Average: 2.76 → 2.92
+  Total:   517 → 513  (Δ -4)
+  Average: 2.92 → 2.85
 
 Maintainability Index (avg):
-  64.33 → 64.16
+  64.16 → 64.29
 
 Halstead Bug Estimate:
-  Overall: 1.33 → 1.38
+  Overall: 1.38 → 1.35
   Notable modules:
-    webbed_duck/_templating/binding.py: 0.49 → 0.53
-    webbed_duck/server/cache.py: 0.70 → 0.71
-    webbed_duck/_templating/renderer.py: 0.04 → 0.04
+    webbed_duck/_templating/binding.py: 0.53 → 0.51
+    webbed_duck/_templating/formatters.py: 0.07 → 0.06
     scripts/generate_template_docs.py: 0.01 → 0.01
     webbed_duck/__init__.py: 0 → 0
+    webbed_duck/_templating/__init__.py: 0 → 0
 
 Generalized Refactor Patterns Applied:
   - auto-populated

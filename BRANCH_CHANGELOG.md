@@ -35,4 +35,9 @@
 - Inline boolean coercion, datetime boundary formatting, and range preflight checks to drop redundant helpers and cut non-space SLOC.
 - Hoist a reusable `_TemplateParameterNamespace` class so template consumption tracking no longer redefines per-call classes.
 - Refresh complexity reports after the SLOC-focused refactor to document the net reductions.
+## Complexity reduction: coercion dispatch and format helpers
+- Centralise parameter coercion behind `_TYPE_COERCERS`, cutting branching in `_coerce_value` while sharing boolean parsing across contexts.
+- Simplify datetime guard checks by reusing the original boundary helper and tightening formatting branches for clearer error messaging.
+- Introduce `_require_format_definition` so date, timestamp, and number formatters reuse the same guard logic instead of duplicating checks.
+- Refresh complexity reports to capture the lower cyclomatic totals, reduced non-space SLOC, and improved maintainability index.
 

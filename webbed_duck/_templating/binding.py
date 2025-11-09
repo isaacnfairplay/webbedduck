@@ -289,41 +289,49 @@ def _collect_unknown_parameters(
     return {key: provided[key] for key in unknown_keys}, []
 
 
-def _coerce_value(name: str, type_name: str, value: Any) -> Any:
-    if type_name == "string":
-        return value if isinstance(value, str) else str(value)
-    if type_name == "boolean":
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            if value in (0, 1):
-                return bool(value)
-            raise ParameterBindingError(
-                f"Parameter '{name}' must be a boolean"
-            )
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {"true", "1", "yes", "on"}:
-                return True
-            if normalized in {"false", "0", "no", "off"}:
-                return False
-        raise ParameterBindingError(f"Parameter '{name}' must be a boolean")
+_BOOLEAN_STRINGS = {"true": True, "1": True, "yes": True, "on": True, "false": False, "0": False, "no": False, "off": False}
 
-    converter = _NUMERIC_CONVERTERS.get(type_name)
-    if converter is None:
+
+def _coerce_boolean(name: str, value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        try:
+            return _BOOLEAN_STRINGS[value.strip().lower()]
+        except KeyError:
+            pass
+    raise ParameterBindingError(f"Parameter '{name}' must be a boolean")
+
+
+def _numeric_coercer(
+    func: Callable[[Any], Any], description: str
+) -> Callable[[str, Any], Any]:
+    def _inner(name: str, value: Any) -> Any:
+        try:
+            return func(value)
+        except (TypeError, ValueError) as exc:
+            raise ParameterBindingError(
+                f"Parameter '{name}' must be {description}"
+            ) from exc
+
+    return _inner
+
+
+_TYPE_COERCERS: Mapping[str, Callable[[str, Any], Any]] = {
+    "string": lambda _name, value: value if isinstance(value, str) else str(value), "boolean": _coerce_boolean,
+    "integer": _numeric_coercer(int, "an integer"), "number": _numeric_coercer(float, "numeric"),
+}
+
+
+def _coerce_value(name: str, type_name: str, value: Any) -> Any:
+    coercer = _TYPE_COERCERS.get(type_name)
+    if coercer is None:
         raise ParameterBindingError(
             f"Parameter '{name}' uses unsupported type '{type_name}'"
         )
-
-    func, description = converter
-    try:
-        return func(value)
-    except (TypeError, ValueError) as exc:
-        raise ParameterBindingError(
-            f"Parameter '{name}' must be {description}"
-        ) from exc
-
-
+    return coercer(name, value)
 
 
 _GuardPredicate = Callable[[Any], bool] | type | tuple[type, ...]
@@ -437,12 +445,6 @@ _BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
 }
 
 
-_NUMERIC_CONVERTERS: Mapping[str, tuple[Callable[[Any], Any], str]] = {
-    "integer": (int, "an integer"),
-    "number": (float, "numeric"),
-}
-
-
 def _coerce_guard_values(
     name: str,
     guard_key: str,
@@ -551,16 +553,9 @@ def _validate_datetime_window_guard(
         if value_dt is None or boundary_dt is None:
             return None
         if _datetimes_mixed_timezone_awareness(value_dt, boundary_dt):
-            return (
-                f"Parameter '{name}' datetime_window guard requires value and {label} boundary "
-                "to use the same timezone awareness"
-            )
+            return f"Parameter '{name}' datetime_window guard requires value and {label} boundary to use the same timezone awareness"
         if comparator(value_dt, boundary_dt):
-            formatted = (
-                raw_boundary.isoformat()
-                if isinstance(raw_boundary, _dt.datetime)
-                else str(raw_boundary)
-            )
+            formatted = raw_boundary.isoformat() if isinstance(raw_boundary, _dt.datetime) else str(raw_boundary)
             return f"Parameter '{name}' must not be {descriptor} {formatted}"
         return None
 
@@ -572,6 +567,7 @@ def _validate_datetime_window_guard(
         )
         if error is not None
     ]
+
 
 
 def _resolve_compare_configuration(

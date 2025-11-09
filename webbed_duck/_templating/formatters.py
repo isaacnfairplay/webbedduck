@@ -82,15 +82,22 @@ def _ensure_datetime(value: datetime) -> datetime:
     return value
 
 
+def _require_format_definition(
+    formats: Mapping[str, Any], format_key: str, kind: str
+) -> Any:
+    definition = formats.get(format_key)
+    if definition is None:
+        raise TemplateApplicationError(f"Unknown {kind} format '{format_key}'")
+    return definition
+
+
 def format_date(value: Any, format_key: str, formats: Mapping[str, Any]) -> str:
     """Format a date or datetime using ``format_key`` from ``formats``."""
 
     if not isinstance(value, (date, datetime)):
         raise TemplateApplicationError("date_format requires a date or datetime")
 
-    format_definition = formats.get(format_key)
-    if format_definition is None:
-        raise TemplateApplicationError(f"Unknown date format '{format_key}'")
+    format_definition = _require_format_definition(formats, format_key, "date")
 
     if format_definition == "ISO":
         return value.isoformat()
@@ -110,9 +117,7 @@ def format_timestamp(value: Any, format_key: str, formats: Mapping[str, Any]) ->
     if not isinstance(value, datetime):
         raise TemplateApplicationError("timestamp_format requires a datetime")
 
-    format_definition = formats.get(format_key)
-    if format_definition is None:
-        raise TemplateApplicationError(f"Unknown timestamp format '{format_key}'")
+    format_definition = _require_format_definition(formats, format_key, "timestamp")
 
     value = _ensure_datetime(value)
 
@@ -131,9 +136,7 @@ def format_number(value: Any, format_key: str, formats: Mapping[str, Any]) -> st
     if not isinstance(value, (int, float, Decimal)):
         raise TemplateApplicationError("number_format requires a numeric value")
 
-    format_definition = formats.get(format_key)
-    if format_definition is None:
-        raise TemplateApplicationError(f"Unknown number format '{format_key}'")
+    format_definition = _require_format_definition(formats, format_key, "number")
 
     if isinstance(format_definition, Mapping):
         format_definition = format_definition.get("spec")
