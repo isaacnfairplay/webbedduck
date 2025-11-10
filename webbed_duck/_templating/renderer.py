@@ -7,6 +7,7 @@ import re
 from typing import Any, Callable, ClassVar, Dict, Mapping
 
 from .errors import TemplateApplicationError
+# fmt: off
 from .formatters import (
     date_offset as _date_offset,
     format_date as _format_date,
@@ -14,6 +15,7 @@ from .formatters import (
     format_timestamp as _format_timestamp,
     stringify,
 )
+# fmt: on
 from .state import prepare_context
 
 __all__ = ["TemplateRenderer"]
@@ -23,23 +25,22 @@ class TemplateRenderer:
     """Render ``{{ ctx.* }}`` expressions against a request context."""
 
     _placeholder = re.compile(r"{{\s*(.*?)\s*}}")
+    # fmt: off
     _FORMATTER_CONFIG: ClassVar[dict[str, tuple[str, Callable[[Any, str, Mapping[str, Any]], Any], str]]] = {
         "date_format": ("iso", _format_date, "date_formats"),
         "timestamp_format": ("iso", _format_timestamp, "timestamp_formats"),
         "number_format": ("decimal", _format_number, "number_formats"),
     }
-
+    # fmt: on
 
     def __init__(self, request_context: Mapping[str, Any]):
         self._prepared = prepare_context(request_context)
-        self._root = {
-            "constants": self._prepared.constants,
-            "parameters": self._prepared.parameters,
-        }
+        # fmt: off
+        self._root = {"constants": self._prepared.constants, "parameters": self._prepared.parameters}
         self._modifier_handlers: Dict[str, Callable[[Any, list[Any], dict[str, Any]], Any]] = {
-            "coalesce": self._handle_coalesce,
-            "date_offset": self._handle_date_offset,
+            "coalesce": self._handle_coalesce, "date_offset": self._handle_date_offset
         }
+        # fmt: on
 
     def render(self, template: str) -> str:
         def replace(match: re.Match[str]) -> str:
@@ -115,23 +116,27 @@ class TemplateRenderer:
             call = ast.parse(modifier, mode="eval").body
         except SyntaxError as exc:  # pragma: no cover - validated in tests
             raise TemplateApplicationError(f"Invalid modifier '{modifier}'") from exc
-        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
-            raise TemplateApplicationError("Modifiers must be function calls")
-        func_name = call.func.id
-        args = [self._literal_eval(arg) for arg in call.args]
-        kwargs = {kw.arg: self._literal_eval(kw.value) for kw in call.keywords}
 
-        handler = self._modifier_handlers.get(func_name)
-        if handler is not None:
+        match call:
+            case ast.Call(
+                func=ast.Name(id=func_name), args=args_nodes, keywords=kw_nodes
+            ):
+                args = [self._literal_eval(arg) for arg in args_nodes]
+                kwargs = {kw.arg: self._literal_eval(kw.value) for kw in kw_nodes}
+            case _:
+                raise TemplateApplicationError("Modifiers must be function calls")
+
+        if handler := self._modifier_handlers.get(func_name):
             return handler(value, args, kwargs)
 
-        if config := self._FORMATTER_CONFIG.get(func_name):
-            default, formatter, attribute = config
-            format_key = args[0] if args else kwargs.get("format_key", default)
-            formats = getattr(self._prepared, attribute)
-            return formatter(value, format_key, formats)
+        formatter_config = self._FORMATTER_CONFIG.get(func_name)
+        if formatter_config is None:
+            raise TemplateApplicationError(f"Unknown modifier '{func_name}'")
 
-        raise TemplateApplicationError(f"Unknown modifier '{func_name}'")
+        default, formatter, attribute = formatter_config
+        format_key = args[0] if args else kwargs.get("format_key", default)
+        formats = getattr(self._prepared, attribute)
+        return formatter(value, format_key, formats)
 
     def _handle_coalesce(
         self, value: Any, args: list[Any], kwargs: dict[str, Any]
@@ -148,5 +153,6 @@ class TemplateRenderer:
         try:
             return ast.literal_eval(node)
         except ValueError as exc:  # pragma: no cover - defensive
-            raise TemplateApplicationError("Modifiers accept literal arguments") from exc
-
+            raise TemplateApplicationError(
+                "Modifiers accept literal arguments"
+            ) from exc

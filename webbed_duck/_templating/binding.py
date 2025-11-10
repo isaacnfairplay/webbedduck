@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping as MappingABC
-from contextlib import suppress
 import datetime as _dt
 import operator
 import re
+from collections.abc import Mapping as MappingABC
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping
 
@@ -115,10 +115,6 @@ class ResolvedParameter:
     spec: ParameterSpec | None
 
 
-
-
-
-
 class ParameterContext(Mapping[str, ResolvedParameter]):
     """Read-only view over validated parameters."""
 
@@ -154,12 +150,12 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
         """Store ``configuration`` for later use during context preparation."""
 
         if not isinstance(configuration, Mapping):
-            raise TemplateApplicationError(
-                "Parameter configuration must be a mapping"
-            )
+            raise TemplateApplicationError("Parameter configuration must be a mapping")
         self._configuration = copy.deepcopy(configuration)
 
-    def with_configuration(self, configuration: Mapping[str, Any]) -> "ParameterContext":
+    def with_configuration(
+        self, configuration: Mapping[str, Any]
+    ) -> "ParameterContext":
         """Attach ``configuration`` and return ``self`` for chaining."""
 
         self.attach_configuration(configuration)
@@ -176,17 +172,11 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
         consumed_keys: set[str] = set()
 
         for name, spec in context.specs.items():
-            raw_value = provided.get(name, _MISSING)
-            if raw_value is _MISSING:
-                if spec.default is _MISSING:
-                    if spec.required:
-                        errors.append(f"Parameter '{name}' is required")
-                    continue
-                raw_value = spec.default
-                provenance = "default"
-            else:
-                consumed_keys.add(name)
-                provenance = "provided"
+            ready, raw_value, provenance = cls._resolve_parameter_source(
+                name, spec, provided, consumed_keys, errors
+            )
+            if not ready:
+                continue
 
             try:
                 value = _coerce_value(name, spec.type, raw_value)
@@ -199,38 +189,43 @@ class ParameterContext(Mapping[str, ResolvedParameter]):
                 errors.extend(guard_errors)
                 continue
 
-            resolved[name] = ResolvedParameter(
-                name=name,
-                value=value,
-                provenance=provenance,
-                allow_template=spec.allow_template,
-                allow_binding=spec.allow_binding,
-                spec=spec,
-            )
+            # fmt: off
+            resolved[name] = ResolvedParameter(name, value, provenance, spec.allow_template, spec.allow_binding, spec)
+            # fmt: on
 
         unknown_parameters, unknown_errors = _collect_unknown_parameters(
             provided, consumed_keys, context.allow_unknown_parameters
         )
         errors.extend(unknown_errors)
 
-        if errors:
-            raise ParameterBindingError("; ".join(errors))
+        # fmt: off
+        if errors: raise ParameterBindingError("; ".join(errors))  # noqa: E701
+        # fmt: on
 
-        resolved.update(
-            {
-                key: ResolvedParameter(
-                    name=key,
-                    value=value,
-                    provenance="provided",
-                    allow_template=False,
-                    allow_binding=True,
-                    spec=None,
-                )
-                for key, value in unknown_parameters.items()
-            }
-        )
+        # fmt: off
+        resolved.update({key: ResolvedParameter(key, value, "provided", False, True, None) for key, value in unknown_parameters.items()})
+        # fmt: on
 
         return cls(resolved)
+
+    @staticmethod
+    def _resolve_parameter_source(
+        name: str,
+        spec: ParameterSpec,
+        provided: Mapping[str, Any],
+        consumed: set[str],
+        errors: list[str],
+    ) -> tuple[bool, Any, str]:
+        raw_value = provided.get(name, _MISSING)
+        if raw_value is _MISSING:
+            if spec.default is _MISSING:
+                if spec.required:
+                    errors.append(f"Parameter '{name}' is required")
+                return False, _MISSING, "provided"
+            return True, spec.default, "default"
+
+        consumed.add(name)
+        return True, raw_value, "provided"
 
     def for_template(self) -> Mapping[str, Any]:
         if self._template_view is None:
@@ -289,7 +284,9 @@ def _collect_unknown_parameters(
     return {key: provided[key] for key in unknown_keys}, []
 
 
+# fmt: off
 _BOOLEAN_STRINGS = {"true": True, "1": True, "yes": True, "on": True, "false": False, "0": False, "no": False, "off": False}
+# fmt: on
 
 
 def _coerce_boolean(name: str, value: Any) -> bool:
@@ -319,10 +316,12 @@ def _numeric_coercer(
     return _inner
 
 
+# fmt: off
 _TYPE_COERCERS: Mapping[str, Callable[[str, Any], Any]] = {
     "string": lambda _name, value: value if isinstance(value, str) else str(value), "boolean": _coerce_boolean,
     "integer": _numeric_coercer(int, "an integer"), "number": _numeric_coercer(float, "numeric"),
 }
+# fmt: on
 
 
 def _coerce_value(name: str, type_name: str, value: Any) -> Any:
@@ -360,6 +359,7 @@ def _guard_option(
     return (transform(value) if transform else value), []
 
 
+# fmt: off
 _SIMPLE_GUARDS: Mapping[
     str,
     tuple[
@@ -393,6 +393,7 @@ _SIMPLE_GUARDS: Mapping[
         ),
     ),
 }
+# fmt: on
 
 
 def _iter_simple_guard_errors(
@@ -411,8 +412,6 @@ def _iter_simple_guard_errors(
             yield from type_errors
         elif option is not None:
             yield from validator(name, value, option)
-
-
 
 
 def _run_guards(
@@ -440,9 +439,9 @@ def _run_guards(
     return errors
 
 
-_BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {
-    "min": (operator.lt, "at least"), "max": (operator.gt, "at most")
-}
+# fmt: off
+_BOUND_CHECKS: Mapping[str, tuple[Callable[[Any, Any], bool], str]] = {"min": (operator.lt, "at least"), "max": (operator.gt, "at most")}
+# fmt: on
 
 
 def _coerce_guard_values(
@@ -486,9 +485,9 @@ def _validate_length_guard(
     ]
 
 
-def _range_violation_messages(
-    name: str, numeric_value: float | int, numeric: Mapping[str, tuple[Any, float | int]]
-) -> list[str]:
+# fmt: off
+def _range_violation_messages(name: str, numeric_value: float | int, numeric: Mapping[str, tuple[Any, float | int]]) -> list[str]:
+# fmt: on
     active = [
         (label, raw)
         for label, (raw, coerced) in numeric.items()
@@ -569,7 +568,6 @@ def _validate_datetime_window_guard(
     ]
 
 
-
 def _resolve_compare_configuration(
     name: str,
     compare: Mapping[str, Any],
@@ -647,6 +645,7 @@ def _validate_compare_guard(
     ]
 
 
+# fmt: off
 _MAPPING_GUARDS: Mapping[
     str,
     Callable[[str, Any, Mapping[str, Any], Mapping[str, "ResolvedParameter"]], list[str]],
@@ -656,6 +655,7 @@ _MAPPING_GUARDS: Mapping[
     "datetime_window": _validate_datetime_window_guard,
     "compare": _validate_compare_guard,
 }
+# fmt: on
 
 
 def _as_float(value: Any) -> float | None:
@@ -721,9 +721,7 @@ class _CompareOperator:
     def message(self, name: str, other: str) -> str:
         if self._description == "different from":
             return f"Parameter '{name}' must be different from parameter '{other}'"
-        return (
-            f"Parameter '{name}' must be {self._description} parameter '{other}'"
-        )
+        return f"Parameter '{name}' must be {self._description} parameter '{other}'"
 
 
 _COMPARE_OPERATORS: Mapping[str, _CompareOperator] = {

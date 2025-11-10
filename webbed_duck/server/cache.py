@@ -9,6 +9,7 @@ import io
 import shutil
 from dataclasses import dataclass, field
 from functools import partial, reduce
+from itertools import chain
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
@@ -468,25 +469,25 @@ class _CsvAdapter(_TextAdapter):
     chunker: ClassVar[Callable[[pa.Table], Iterable[str]]] = staticmethod(_iter_csv_chunks)
 
 
+def _json_array(records: Iterator[str]) -> Iterator[str]:
+    iterator = iter(records)
+    first = next(iterator, None)
+    return (
+        iter(("[]",))
+        if first is None
+        else chain(["[" + first], map(",{}".format, iterator), ["]"])
+    )
+
+
 def _iter_json_payloads(lines: bool, table: pa.Table) -> Iterator[str]:
     records = (
         json.dumps(record, default=str)
-        for batch in table.to_batches(max_chunksize=table.num_rows or None)
-        for record in batch.to_pylist()
+        for record in chain.from_iterable(
+            batch.to_pylist()
+            for batch in table.to_batches(max_chunksize=table.num_rows or None)
+        )
     )
-    if lines:
-        for record in records:
-            yield record + "\n"
-        return
-
-    yield "["
-    first = True
-    for record in records:
-        if not first:
-            yield ","
-        yield record
-        first = False
-    yield "]"
+    return (f"{record}\n" for record in records) if lines else _json_array(records)
 
 
 class _JsonAdapter(_TextAdapter):

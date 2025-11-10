@@ -46,3 +46,12 @@
 - Preserve invariant and constant filtering while reducing duplicated storage reads for cached and superset paths.
 - Capture cache-focused refactoring guidance in the `lessons_learned/` notebooks and surface the reminder inside `AGENTS.md`.
 
+## Modifier dispatch and parameter resolution cleanup
+- Replace the modifier parsing branch ladder with structural pattern matching and guard clauses, shrinking `_apply_modifier` while keeping behaviour intact.
+- Introduce `_resolve_parameter_source` to centralise provenance handling and drop repeated required/default checks in `ParameterContext.from_manifest`.
+- Inline ResolvedParameter creation for unknowns and tighten guard registries with `# fmt: off` hints to maintain prior SLOC while reducing cyclomatic complexity.
+
+## Complexity reduction: JSON payload streaming
+- Flatten `_iter_json_payloads` into newline and array-specific paths that stream via generator expressions instead of nested loops.
+- Replace the comma bookkeeping flag with iterator priming so JSON exports avoid branch-heavy state tracking while preserving streaming behaviour.
+
