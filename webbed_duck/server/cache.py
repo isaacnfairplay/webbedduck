@@ -3,47 +3,36 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import io
 import shutil
 from dataclasses import dataclass, field
-from functools import partial, reduce
+from functools import partial
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, Sequence, TextIO
+from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, TextIO
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pyarrow.csv as pacsv
 
-
-NULL_SENTINEL = "__null__"
-
+from .cache_support import (
+    NULL_SENTINEL,
+    CacheEntry,
+    CacheEntryMetadata,
+    InvariantFilter,
+    compute_digest,
+    decode_null,
+    encode_constants,
+    freeze_str_mapping,
+    freeze_token_mapping,
+    normalize_items,
+)
+from .cache_resolution import CacheFilterPipeline, SupersetResolver
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _decode_null(value: Any) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, str) and value == NULL_SENTINEL:
-        return None
-    return value
-
-
-def _freeze_str_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
-    return MappingProxyType({str(key): value for key, value in mapping.items()})
-
-
-def _freeze_token_mapping(
-    mapping: Mapping[str, Iterable[str]] | Mapping[str, Sequence[str]]
-) -> Mapping[str, tuple[str, ...]]:
-    return MappingProxyType({str(name): tuple(tokens) for name, tokens in mapping.items()})
 
 
 def _handle_expiry(
@@ -53,73 +42,6 @@ def _handle_expiry(
         return False
     on_expire()
     return True
-
-
-def _stringify(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (int, float, bool)):
-        return str(value)
-    return json.dumps(value, default=str, sort_keys=True)
-
-
-def _normalize_items(mapping: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...]:
-    if not mapping:
-        return tuple()
-    return tuple(
-        (
-            str(key),
-            NULL_SENTINEL if (value := mapping[key]) is None else _stringify(value),
-        )
-        for key in sorted(mapping)
-    )
-
-
-def _decode_entry_metadata(
-    data: Mapping[str, Any]
-) -> tuple[datetime, datetime, Mapping[str, tuple[str, ...]], int, int]:
-    created_at = datetime.fromisoformat(data["created_at"])
-    expires_at = created_at + timedelta(seconds=data["ttl_seconds"])
-    invariants = _freeze_token_mapping(dict(data.get("invariants") or {}))
-    page_source = data.get("page_size") or data.get("row_count", 1) or 1
-    page_size = max(1, int(page_source))
-    row_count = int(data.get("row_count", 0))
-    return created_at, expires_at, invariants, page_size, row_count
-
-
-def _ensure_sequence(value: Any) -> Sequence[Any]:
-    if value is None:
-        return ()
-    if isinstance(value, (list, tuple, set)):
-        return tuple(value)
-    return (value,)
-
-
-def _encode_constant_value(
-    key: str,
-    value: Any,
-    filters: Mapping[str, InvariantFilter],
-    invariant_tokens: dict[str, tuple[str, ...]],
-) -> str:
-    filter_config = filters.get(key)
-    if filter_config is None:
-        return NULL_SENTINEL if value is None else _stringify(value)
-    tokens = filter_config.normalize(value)
-    invariant_tokens[key] = tokens
-    return filter_config.encode(tokens)
-
-
-def _compute_digest(route_slug: str, parameters: tuple[tuple[str, str], ...], constants: tuple[tuple[str, str], ...]) -> str:
-    payload = json.dumps(
-        {
-            "route": route_slug,
-            "parameters": parameters,
-            "constants": constants,
-        },
-        sort_keys=True,
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _ensure_arrow_table(result: Any) -> pa.Table:
@@ -134,97 +56,13 @@ def _ensure_arrow_table(result: Any) -> pa.Table:
     raise TypeError("Cache runner must return a pyarrow.Table or DuckDB relation")
 
 
-@dataclass(frozen=True)
-class InvariantFilter:
-    """Normalisation and predicate configuration for invariant constants."""
-
-    key: str
-    column: str | None = None
-    separator: str = "|"
-    case_insensitive: bool = False
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "column", self.column or self.key)
-
-    def normalize(self, value: Any) -> tuple[str, ...]:
-        if value is None:
-            return (NULL_SENTINEL,)
-        candidates: Iterable[Any]
-        if isinstance(value, str):
-            candidates = value.split(self.separator)
-        else:
-            candidates = _ensure_sequence(value)
-        normalized = tuple(
-            token
-            for candidate in candidates
-            if (token := self._normalize_candidate(candidate)) is not None
-        )
-        return tuple(sorted(dict.fromkeys(normalized)))
-
-    def _normalize_candidate(self, candidate: Any) -> str | None:
-        if candidate is None:
-            return NULL_SENTINEL
-        token = str(candidate).strip()
-        if not token:
-            return None
-        if self.case_insensitive:
-            return token.lower()
-        return token
-
-    def encode(self, tokens: tuple[str, ...]) -> str:
-        if not tokens:
-            return ""
-        return self.separator.join(tokens)
-
-    def apply(self, table: pa.Table, tokens: tuple[str, ...]) -> pa.Table:
-        predicate = self._predicate_for(table, tokens)
-        if predicate is None:
-            return table
-        if isinstance(predicate, pa.ChunkedArray):
-            predicate = predicate.combine_chunks()
-        return table.filter(predicate)
-
-    def _predicate_for(
-        self, table: pa.Table, tokens: tuple[str, ...]
-    ) -> pa.Array | pa.ChunkedArray | None:
-        if not tokens:
-            return None
-        column_name = self.column or self.key
-        if column_name not in table.column_names:
-            return None
-        column_data = table[column_name]
-        column_for_compare = (
-            pc.utf8_lower(column_data)
-            if self.case_insensitive and pa.types.is_string(column_data.type)
-            else column_data
-        )
-        predicate = self._membership_predicate(column_for_compare, tokens)
-        return self._include_nulls(predicate, column_data, tokens)
-
-    def _membership_predicate(
-        self, column_data: pa.Array | pa.ChunkedArray, tokens: tuple[str, ...]
-    ) -> pa.Array | pa.ChunkedArray | None:
-        compare_tokens = tuple(token for token in tokens if token != NULL_SENTINEL)
-        if not compare_tokens:
-            return None
-        try:
-            token_array = pa.array(compare_tokens, type=column_data.type)
-        except (pa.ArrowTypeError, pa.ArrowInvalid):
-            token_array = pa.array(compare_tokens).cast(column_data.type)
-        return pc.is_in(column_data, value_set=token_array)
-
-    def _include_nulls(
-        self,
-        predicate: pa.Array | pa.ChunkedArray | None,
-        column_data: pa.Array | pa.ChunkedArray,
-        tokens: tuple[str, ...],
-    ) -> pa.Array | pa.ChunkedArray | None:
-        if NULL_SENTINEL not in tokens:
-            return predicate
-        null_predicate = pc.is_null(column_data)
-        if predicate is None:
-            return null_predicate
-        return pc.or_(predicate, null_predicate)
+def _iter_page_tables(table: pa.Table, page_size: int) -> Iterator[pa.Table]:
+    yielded = False
+    for batch in table.to_batches(max_chunksize=page_size):
+        yielded = True
+        yield pa.Table.from_batches([batch])
+    if not yielded:
+        yield table
 
 
 @dataclass(frozen=True)
@@ -244,7 +82,7 @@ class CacheSettings:
         if self.ttl <= timedelta(0):
             msg = "ttl must be positive"
             raise ValueError(msg)
-        object.__setattr__(self, "invariants", _freeze_str_mapping(self.invariants))
+        object.__setattr__(self, "invariants", freeze_str_mapping(self.invariants))
 
 
 CacheConfig = CacheSettings
@@ -273,27 +111,26 @@ class CacheKey:
         constants: Mapping[str, Any] | None = None,
         invariant_filters: Mapping[str, InvariantFilter] | None = None,
     ) -> "CacheKey":
-        params_copy = {str(key): _decode_null(value) for key, value in (parameters or {}).items()}
-        const_copy = {str(key): _decode_null(value) for key, value in (constants or {}).items()}
-        normalized_params = _normalize_items(params_copy)
+        params_copy = {
+            str(key): decode_null(value)
+            for key, value in (parameters or {}).items()
+        }
+        const_copy = {
+            str(key): decode_null(value)
+            for key, value in (constants or {}).items()
+        }
+        normalized_params = normalize_items(params_copy)
         filters = invariant_filters or {}
-        invariant_tokens: dict[str, tuple[str, ...]] = {}
-        normalized_constants_tuple = tuple(
-            (
-                key,
-                _encode_constant_value(key, const_copy[key], filters, invariant_tokens),
-            )
-            for key in sorted(const_copy)
-        )
-        digest = _compute_digest(route_slug, normalized_params, normalized_constants_tuple)
+        normalized_constants_tuple, invariant_tokens = encode_constants(const_copy, filters)
+        digest = compute_digest(route_slug, normalized_params, normalized_constants_tuple)
         return cls(
             route_slug=route_slug,
             parameters=normalized_params,
             constants=normalized_constants_tuple,
             digest=digest,
-            _raw_parameters=_freeze_str_mapping(params_copy),
-            _raw_constants=_freeze_str_mapping(const_copy),
-            _invariant_tokens=_freeze_token_mapping(invariant_tokens),
+            _raw_parameters=freeze_str_mapping(params_copy),
+            _raw_constants=freeze_str_mapping(const_copy),
+            _invariant_tokens=freeze_token_mapping(invariant_tokens),
         )
 
     @property
@@ -364,26 +201,32 @@ class _IterTextIO(io.TextIOBase):
         return payload
 
     def read(self, size: int = -1) -> str:  # pragma: no cover - exercised via callers
-        if self._closed:
-            raise ValueError("I/O operation on closed file.")
+        self._ensure_open()
         if size is None or size < 0:
             return self._read_all()
-        head = self._buffer[:size]
-        pieces: list[str] = [head]
-        self._buffer = self._buffer[len(head):]
-        size -= len(head)
-        while size > 0:
+        remaining = size
+        pieces: list[str] = []
+        if self._buffer:
+            head = self._buffer[:remaining]
+            pieces.append(head)
+            self._buffer = self._buffer[len(head):]
+            remaining -= len(head)
+        while remaining > 0:
             try:
                 chunk = next(self._iterator)
             except StopIteration:
                 break
-            take = chunk[:size]
-            pieces.append(take)
-            size -= len(take)
-            if len(take) < len(chunk):
-                self._buffer = chunk[len(take):]
+            if remaining < len(chunk):
+                pieces.append(chunk[:remaining])
+                self._buffer = chunk[remaining:]
                 break
+            pieces.append(chunk)
+            remaining -= len(chunk)
         return "".join(pieces)
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise ValueError("I/O operation on closed file.")
 
     def close(self) -> None:  # pragma: no cover - trivial
         if not self._closed:
@@ -468,17 +311,18 @@ class _CsvAdapter(_TextAdapter):
     chunker: ClassVar[Callable[[pa.Table], Iterable[str]]] = staticmethod(_iter_csv_chunks)
 
 
+def _iter_json_records(table: pa.Table) -> Iterator[str]:
+    for batch in table.to_batches(max_chunksize=table.num_rows or None):
+        for record in batch.to_pylist():
+            yield json.dumps(record, default=str)
+
+
 def _iter_json_payloads(lines: bool, table: pa.Table) -> Iterator[str]:
-    records = (
-        json.dumps(record, default=str)
-        for batch in table.to_batches(max_chunksize=table.num_rows or None)
-        for record in batch.to_pylist()
-    )
+    records = _iter_json_records(table)
     if lines:
         for record in records:
             yield record + "\n"
         return
-
     yield "["
     first = True
     for record in records:
@@ -609,8 +453,8 @@ class ResponseEnvelope:
     )
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "requested_invariants", _freeze_token_mapping(self.requested_invariants))
-        object.__setattr__(self, "cached_invariants", _freeze_token_mapping(self.cached_invariants))
+        object.__setattr__(self, "requested_invariants", freeze_token_mapping(self.requested_invariants))
+        object.__setattr__(self, "cached_invariants", freeze_token_mapping(self.cached_invariants))
 
     def __getattr__(self, name: str) -> Any:
         if name in self._DELEGATED:
@@ -652,24 +496,13 @@ class CacheStorage:
 
     def load_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
         entry_dir = self._entry_dir(key)
-        metadata_path = entry_dir / "metadata.json"
+        metadata_path = self._metadata_path(entry_dir)
         if not metadata_path.exists():
             return None
-        data = json.loads(metadata_path.read_text())
-        created_at, expires_at, invariants, page_size, row_count = _decode_entry_metadata(
-            data
-        )
-        if _handle_expiry(expires_at, now, on_expire=lambda: self.evict(key)):
+        metadata = self._read_metadata(metadata_path)
+        if _handle_expiry(metadata.expires_at, now, on_expire=lambda: self.evict(key)):
             return None
-        return CacheEntry(
-            key=key,
-            path=entry_dir,
-            created_at=created_at,
-            expires_at=expires_at,
-            row_count=row_count,
-            page_size=page_size,
-            invariants=invariants,
-        )
+        return metadata.to_cache_entry(key=key, path=entry_dir)
 
     def write_entry(
         self,
@@ -682,44 +515,19 @@ class CacheStorage:
         invariants: Mapping[str, tuple[str, ...]] | None = None,
     ) -> CacheEntry:
         entry_dir = self._entry_dir(key)
-        if entry_dir.exists():
-            shutil.rmtree(entry_dir)
-        entry_dir.mkdir(parents=True, exist_ok=True)
-        batches = list(table.to_batches(max_chunksize=page_size))
-        if not batches:
-            pq.write_table(table, entry_dir / "page-00000.parquet")
-        else:
-            for index, batch in enumerate(batches):
-                page_table = pa.Table.from_batches([batch])
-                pq.write_table(page_table, entry_dir / f"page-{index:05d}.parquet")
-        metadata_path = entry_dir / "metadata.json"
-        invariant_payload = {
-            name: list(tokens)
-            for name, tokens in (invariants or {}).items()
-        }
-        metadata = {
-            "created_at": created_at.isoformat(),
-            "ttl_seconds": ttl.total_seconds(),
-            "row_count": table.num_rows,
-            "page_size": page_size,
-            "route_slug": key.route_slug,
-            "parameters": list(key.parameters),
-            "constants": list(key.constants),
-            "raw_parameters": dict(key.parameter_values),
-            "raw_constants": dict(key.constant_values),
-            "invariants": invariant_payload,
-        }
-        metadata_path.write_text(json.dumps(metadata, sort_keys=True))
-        expires_at = created_at + ttl
-        return CacheEntry(
+        self._prepare_entry_dir(entry_dir)
+        for index, page_table in enumerate(_iter_page_tables(table, page_size)):
+            pq.write_table(page_table, entry_dir / f"page-{index:05d}.parquet")
+        metadata = CacheEntryMetadata.for_entry(
             key=key,
-            path=entry_dir,
+            table=table,
             created_at=created_at,
-            expires_at=expires_at,
-            row_count=table.num_rows,
+            ttl=ttl,
             page_size=page_size,
-            invariants=_freeze_token_mapping(invariant_payload),
+            invariants=invariants or key.invariant_tokens,
         )
+        self._write_metadata(entry_dir, metadata)
+        return metadata.to_cache_entry(key=key, path=entry_dir)
 
     def read_entry(self, entry: CacheEntry) -> pa.Table:
         tables = [pq.read_table(page) for page in sorted(entry.path.glob("page-*.parquet"))]
@@ -742,32 +550,33 @@ class CacheStorage:
         self, metadata_path: Path, *, route_slug: str, now: datetime
     ) -> CacheEntry | None:
         entry_dir = metadata_path.parent
-        data = json.loads(metadata_path.read_text())
-        created_at, expires_at, invariants, page_size, row_count = _decode_entry_metadata(
-            data
-        )
-        if data.get("route_slug") != route_slug:
+        metadata = self._read_metadata(metadata_path)
+        if metadata.route_slug != route_slug:
             return None
-        if _handle_expiry(expires_at, now, on_expire=lambda: shutil.rmtree(entry_dir)):
+        if self._evict_if_expired(entry_dir, metadata.expires_at, now):
             return None
-        key = CacheKey(
-            route_slug=data["route_slug"],
-            parameters=tuple(tuple(item) for item in data.get("parameters", [])),
-            constants=tuple(tuple(item) for item in data.get("constants", [])),
-            digest=entry_dir.name,
-            _raw_parameters=_freeze_str_mapping(dict(data.get("raw_parameters") or {})),
-            _raw_constants=_freeze_str_mapping(dict(data.get("raw_constants") or {})),
-            _invariant_tokens=invariants,
-        )
-        return CacheEntry(
-            key=key,
-            path=entry_dir,
-            created_at=created_at,
-            expires_at=expires_at,
-            row_count=row_count,
-            page_size=page_size,
-            invariants=invariants,
-        )
+        key = metadata.to_cache_key(digest=entry_dir.name)
+        return metadata.to_cache_entry(key=key, path=entry_dir)
+
+    def _evict_if_expired(
+        self, entry_dir: Path, expires_at: datetime, now: datetime
+    ) -> bool:
+        return _handle_expiry(expires_at, now, on_expire=lambda: shutil.rmtree(entry_dir))
+
+    def _metadata_path(self, entry_dir: Path) -> Path:
+        return entry_dir / "metadata.json"
+
+    def _prepare_entry_dir(self, entry_dir: Path) -> None:
+        if entry_dir.exists():
+            shutil.rmtree(entry_dir)
+        entry_dir.mkdir(parents=True, exist_ok=True)
+
+    def _read_metadata(self, metadata_path: Path) -> CacheEntryMetadata:
+        return CacheEntryMetadata.from_dict(json.loads(metadata_path.read_text()))
+
+    def _write_metadata(self, entry_dir: Path, metadata: CacheEntryMetadata) -> None:
+        metadata_path = self._metadata_path(entry_dir)
+        metadata_path.write_text(json.dumps(metadata.to_record(), sort_keys=True))
 
 
 class Cache:
@@ -786,6 +595,8 @@ class Cache:
         self._clock = clock or _utc_now
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
+        self._filters = CacheFilterPipeline(self._invariants)
+        self._supersets = SupersetResolver(self._invariants)
 
     def fetch_or_populate(self, key: CacheKey) -> CacheResult:
         now = self._clock()
@@ -805,7 +616,7 @@ class Cache:
     ) -> tuple[CacheEntry, bool] | None:
         if (entry := self._storage.load_entry(key, now)) is not None:
             return entry, False
-        superset_entry = self._find_superset_entry(key, now)
+        superset_entry = self._supersets.find(self._storage, key, now)
         if superset_entry is not None:
             return superset_entry, True
         return None
@@ -818,7 +629,7 @@ class Cache:
         from_superset: bool,
     ) -> CacheResult:
         table = self._storage.read_entry(entry)
-        filtered = self._apply_filters(table, key)
+        filtered = self._filters.apply(table, key)
         return self._build_result(
             filtered,
             key=key,
@@ -831,7 +642,7 @@ class Cache:
         raw_table = _ensure_arrow_table(
             self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
         )
-        filtered = self._apply_filters(raw_table, key)
+        filtered = self._filters.apply(raw_table, key)
         entry = self._storage.write_entry(
             key,
             filtered,
@@ -841,7 +652,7 @@ class Cache:
             invariants=key.invariant_tokens,
         )
         stored = self._storage.read_entry(entry)
-        stored_filtered = self._apply_filters(stored, key)
+        stored_filtered = self._filters.apply(stored, key)
         return self._build_result(
             stored_filtered,
             key=key,
@@ -849,52 +660,6 @@ class Cache:
             from_cache=False,
             from_superset=False,
         )
-
-    def _apply_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
-        filtered = self._apply_invariant_filters(table, key)
-        return self._apply_constant_filters(filtered, key)
-
-    def _apply_invariant_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
-        filtered = table
-        for name, tokens in key.invariant_tokens.items():
-            filter_config = self._invariants.get(name)
-            if filter_config is None:
-                continue
-            filtered = filter_config.apply(filtered, tokens)
-        return filtered
-
-    def _apply_constant_filters(self, table: pa.Table, key: CacheKey) -> pa.Table:
-        return reduce(
-            self._filter_by_column,
-            (
-                (column, target)
-                for column, target in key.constant_values.items()
-                if column not in self._invariants
-            ),
-            table,
-        )
-
-    def _filter_by_column(
-        self, table: pa.Table, column_target: tuple[str, Any]
-    ) -> pa.Table:
-        column, target = column_target
-        if column not in table.column_names:
-            return table
-        predicate = self._constant_predicate(table[column], target)
-        if isinstance(predicate, pa.ChunkedArray):
-            predicate = predicate.combine_chunks()
-        return table.filter(predicate)
-
-    def _constant_predicate(
-        self, column_data: pa.Array | pa.ChunkedArray, target: Any
-    ) -> pa.Array | pa.ChunkedArray:
-        if target is None:
-            return pc.is_null(column_data)
-        try:
-            scalar = pa.scalar(target, type=column_data.type)
-        except (pa.ArrowTypeError, pa.ArrowInvalid):
-            scalar = pa.scalar(target)
-        return pc.equal(column_data, scalar)
 
     def _build_result(
         self,
@@ -912,67 +677,8 @@ class Cache:
             from_cache=from_cache,
             from_superset=from_superset,
             entry_digest=entry.key.digest,
-            requested_invariants=_freeze_token_mapping(key.invariant_tokens),
+            requested_invariants=freeze_token_mapping(key.invariant_tokens),
             cached_invariants=entry.invariants,
             created_at=entry.created_at,
             expires_at=entry.expires_at,
-        )
-
-    def _find_superset_entry(self, key: CacheKey, now: datetime) -> CacheEntry | None:
-        if not key.invariant_tokens:
-            return None
-        candidates = self._storage.scan_entries(route_slug=key.route_slug, now=now)
-        requested_params = dict(key.parameter_values)
-        requested_constants = dict(key.constant_values)
-        requested_invariants = {
-            name: set(tokens)
-            for name, tokens in key.invariant_tokens.items()
-        }
-        return next(
-            (
-                entry
-                for entry in candidates
-                if self._entry_is_superset(
-                    entry,
-                    key,
-                    requested_params,
-                    requested_constants,
-                    requested_invariants,
-                )
-            ),
-            None,
-        )
-
-    def _non_invariant_equal(
-        self, existing_constants: Mapping[str, Any], requested_constants: Mapping[str, Any]
-    ) -> bool:
-        invariant_names = set(self._invariants.keys())
-        existing_filtered = {
-            key: value for key, value in existing_constants.items() if key not in invariant_names
-        }
-        requested_filtered = {
-            key: value for key, value in requested_constants.items() if key not in invariant_names
-        }
-        return existing_filtered == requested_filtered
-
-    def _entry_is_superset(
-        self,
-        entry: CacheEntry,
-        key: CacheKey,
-        requested_params: Mapping[str, Any],
-        requested_constants: Mapping[str, Any],
-        requested_invariants: Mapping[str, set[str]],
-    ) -> bool:
-        if entry.key.digest == key.digest:
-            return False
-        if dict(entry.key.parameter_values) != requested_params:
-            return False
-        if not self._non_invariant_equal(entry.key.constant_values, requested_constants):
-            return False
-        entry_invariants = {name: set(tokens) for name, tokens in entry.invariants.items()}
-        if entry_invariants.keys() != requested_invariants.keys():
-            return False
-        return all(
-            requested_invariants[name].issubset(entry_invariants[name])
-            for name in requested_invariants
         )

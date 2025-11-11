@@ -46,3 +46,8 @@
 - Preserve invariant and constant filtering while reducing duplicated storage reads for cached and superset paths.
 - Capture cache-focused refactoring guidance in the `lessons_learned/` notebooks and surface the reminder inside `AGENTS.md`.
 
+## Complexity reduction: filter pipeline and superset resolver
+- Move invariant and constant filtering into a dedicated `CacheFilterPipeline`, trimming branches inside the main cache facade while keeping Arrow filtering logic together.
+- Extract superset-matching responsibilities into a `SupersetResolver` that pre-normalises requested keys and compares non-invariant constants consistently.
+- Continue producing complexity reports after each structural change to document hotspot score improvements and validate the metrics pipeline.
+
