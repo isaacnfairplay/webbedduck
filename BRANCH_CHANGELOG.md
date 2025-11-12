@@ -61,3 +61,33 @@
 - Remove the superset resolver and always serve responses from a single broad cache entry keyed by parameters and non-invariant constants.
 - Update cache key digests to ignore invariant tokens, store Parquet pages without invariant filtering, and apply invariants only when building the response envelope.
 - Refresh cache tests and docs to reflect the shared-base-entry model and the fact that `from_superset` now remains `False` while cached invariant metadata stays empty.
+
+## Inline template metadata extraction
+- Add `webbed_duck.server.template_metadata` to parse inline `webbed_duck:` directives and `ctx.ui` helper calls into immutable validator descriptors.
+- Extend the templating renderer with a metadata callback and `ctx.ui` proxy so templates can register validators without influencing rendered SQL.
+- Provide a route registry helper that scans SQL templates, attaches cache invariant descriptors, and surface the combined description via new `webbed_duck.server` exports and tests.
+
+## Follow-up: validation-derived template metadata
+- Remove the renderer metadata callback and instead reuse existing guard and whitelist logic when assembling template metadata, dropping the temporary `ctx.ui` helpers.
+- Teach `collect_template_metadata` to merge inline directives with parameter whitelists and guard definitions sourced from validation manifests so UI descriptors mirror enforcement rules.
+- Allow the route registry builder to accept per-slug validation contexts and update tests to assert the combined invariants, validation-derived directives, and inline annotations.
+
+## Follow-up: documented route metadata examples
+- Add an example sales route template under `examples/route_templates/` to anchor inline metadata directives in documentation.
+- Capture the route registry output in `test_docs/cache_route_metadata_examples.md` and assert it stays in sync through a regression test.
+- Extend the template metadata test module with helpers that render registry output for docs so consumers can see how comments, whitelists, and validation manifests interact.
+
+## Follow-up: inline directive parsing polish
+- Allow `webbed_duck:` directives to appear inline alongside SQL clauses so validators sit next to the parameters they protect.
+- Update server metadata tests to cover inline comment parsing and keep route registry expectations anchored to the new style.
+- Refresh the catalog sales example template to showcase inline comments and keep the documentation snapshot current.
+
+## Follow-up: call-based inline directives
+- Replace SQL comment annotations with `{{ webbed_duck.*(...) }}` inline directives so metadata stays adjacent to the guarded expressions without hiding in comments.
+- Parse inline directive calls via the metadata collector, treating the first two positional arguments as `target` and `name` while capturing keyword options for descriptors.
+- Teach the template renderer to treat inline directive calls as no-op expressions during rendering, update docs/tests/examples to the call syntax, and keep validation-derived metadata intact.
+
+## Follow-up: inline DSL reference documentation
+- Add a dedicated reference template under `examples/route_templates/reference/` that demonstrates inline validator calls alongside real whitelist and range guards.
+- Generate `test_docs/template_metadata_dsl_reference.md` from the test suite so the documented DSL, sample SQL, and collected metadata stay in sync.
+- Extend the template metadata tests with helpers that render the DSL reference, covering inline directives, validation-derived annotations, and aggregated route registry output.
