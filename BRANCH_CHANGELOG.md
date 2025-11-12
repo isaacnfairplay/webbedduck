@@ -51,3 +51,13 @@
 - Extract superset-matching responsibilities into a `SupersetResolver` that pre-normalises requested keys and compares non-invariant constants consistently.
 - Continue producing complexity reports after each structural change to document hotspot score improvements and validate the metrics pipeline.
 
+
+## Plain-language cache API summary
+- Add `test_docs/cache_metadata_api_overview.md` to explain the cache architecture, filter behaviour, and metadata-first API proposal in approachable language for non-implementers.
+- Highlight how invariant and non-invariant filters, shared base entries, and page-by-page fetching translate into a summary-first network design with explicit freshness controls.
+- Expand the explainer with extra background on what the cache stores, how response envelopes work, and why the metadata-first API lines up with existing helpers.
+
+## Drop invariant superset reuse in cache
+- Remove the superset resolver and always serve responses from a single broad cache entry keyed by parameters and non-invariant constants.
+- Update cache key digests to ignore invariant tokens, store Parquet pages without invariant filtering, and apply invariants only when building the response envelope.
+- Refresh cache tests and docs to reflect the shared-base-entry model and the fact that `from_superset` now remains `False` while cached invariant metadata stays empty.

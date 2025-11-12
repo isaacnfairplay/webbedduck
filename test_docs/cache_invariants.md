@@ -16,24 +16,24 @@ behaviour:
   comparison, ensuring values like `VIP`, `vip`, or `Vip` hit the same shard.
 
 ## Persisted metadata
-- Each cache entry stores invariant metadata alongside Parquet pages. The JSON
-  metadata records the normalised invariant tokens so TTL refreshes and cache
-  reuse can reason about shard coverage.
-- Stored `ttl_seconds` and `row_count` values update on every cache miss. Tests
-  validate that superset hits do not trigger a refresh, while new shards write
-  fresh metadata entries.
+- Cache entries now materialise Parquet pages without applying invariant
+  filters. The JSON metadata therefore records empty `invariants` maps and the
+  unfiltered `row_count` so callers know the stored dataset is a broad superset
+  of any particular invariant request.
+- Stored `ttl_seconds` values still refresh on cache misses. Because the same
+  entry services every invariant combination, subsequent requests reuse the
+  existing metadata until the TTL expires.
 
-## Reusing and recombining shards
-- Cache keys encode invariant parameters using the same normalised token order
-  found in metadata. Two requests that differ only by token case hash to the
-  same digest, whereas incompatible token sets route to distinct directories.
-- When a cached entry contains a superset of invariant tokens, follow-up
-  requests for subsets reuse the stored pages. The cache filters the superset
-  down in-memory, so the DuckDB runner is not invoked.
-- Requests that include tokens outside a cached superset result in misses. New
-  shards are materialised under their own digest and persisted with the
-  matching invariant metadata, ready for future recombination.
+## Shared base entries
+- Cache key digests intentionally exclude invariant constants. Two requests
+  that differ only by invariant tokens hash to the same directory, guaranteeing
+  they share the same stored Parquet pages.
+- Each request receives a filtered view of that base table at read time. The
+  response envelope surfaces the requested invariant tokens, while the cached
+  invariant map stays empty to reflect that the on-disk pages were persisted
+  without filtering.
+- Because the base entry already contains every invariant value, the DuckDB
+  runner executes only once per parameter + non-invariant constant combination.
 
-These requirements ensure that route-level invariants behave predictably and
-that the cache can confidently combine, prune, or refresh shards without
-violating query semantics.
+These requirements ensure invariant filters behave predictably while avoiding
+the complexity of superset detection or shard recombination.

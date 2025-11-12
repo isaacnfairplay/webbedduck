@@ -219,7 +219,7 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
         "channel": ("email",),
         "segment": (CacheKey.NULL_SENTINEL,),
     }
-    assert dict(result.cached_invariants) == dict(result.requested_invariants)
+    assert dict(result.cached_invariants) == {}
 
     again = cache.fetch_or_populate(key)
     assert call_counter["count"] == 1  # cache hit bypasses runner
@@ -228,9 +228,10 @@ def test_invariant_filters_and_null_semantics(tmp_cache_dir: pathlib.Path) -> No
     assert again.from_superset is False
     assert again.entry_digest == key.digest
     assert again.row_count == len(as_rows)
+    assert dict(again.cached_invariants) == {}
 
 
-def test_multi_value_invariant_superset_reuse_and_metadata(
+def test_invariant_requests_share_base_entry_and_metadata(
     tmp_cache_dir: pathlib.Path,
 ) -> None:
     clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
@@ -261,32 +262,32 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
 
     cache = Cache(config=config, run_query=runner, clock=clock.now)
 
-    superset_key = CacheKey.from_parts(
+    first_key = CacheKey.from_parts(
         "reports/channels",
         parameters={"view": "regional"},
         constants={"channel": "email", "region": "US|ca"},
         invariant_filters=config.invariants,
     )
 
-    superset = cache.fetch_or_populate(superset_key)
-    superset_rows = superset.to_pylist()
+    initial = cache.fetch_or_populate(first_key)
+    initial_rows = initial.to_pylist()
     assert call_counter["count"] == 1
-    assert {row["region"] for row in superset_rows} == {"US", "CA"}
-    assert superset.from_cache is False
-    assert superset.from_superset is False
-    assert superset.entry_digest == superset_key.digest
-    assert superset.row_count == len(superset_rows)
-    assert dict(superset.requested_invariants) == {
+    assert {row["region"] for row in initial_rows} == {"US", "CA"}
+    assert initial.from_cache is False
+    assert initial.from_superset is False
+    assert initial.entry_digest == first_key.digest
+    assert initial.row_count == len(initial_rows)
+    assert dict(initial.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca", "us"),
     }
-    assert dict(superset.cached_invariants) == dict(superset.requested_invariants)
+    assert dict(initial.cached_invariants) == {}
 
-    superset_dir = tmp_cache_dir / superset_key.digest
-    metadata = json.loads((superset_dir / "metadata.json").read_text())
-    assert metadata["row_count"] == 2
+    entry_dir = tmp_cache_dir / first_key.digest
+    metadata = json.loads((entry_dir / "metadata.json").read_text())
+    assert metadata["row_count"] == table.num_rows
     assert metadata["ttl_seconds"] == config.ttl.total_seconds()
-    assert metadata["invariants"]["region"] == ["ca", "us"]
+    assert metadata["invariants"] == {}
 
     subset_key = CacheKey.from_parts(
         "reports/channels",
@@ -294,9 +295,10 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
         constants={"channel": "email", "region": "ca"},
         invariant_filters=config.invariants,
     )
+    assert subset_key.digest == first_key.digest
 
     subset = cache.fetch_or_populate(subset_key)
-    assert call_counter["count"] == 1  # served from cached superset
+    assert call_counter["count"] == 1  # served from shared base cache
     subset_rows = subset.to_pylist()
     assert {row["region"] for row in subset_rows} == {"CA"}
     assert all(row["channel"] == "email" for row in subset_rows)
@@ -304,41 +306,42 @@ def test_multi_value_invariant_superset_reuse_and_metadata(
         streamed_subset = pq.read_table(parquet_stream).to_pylist()
     assert streamed_subset == subset_rows
     assert subset.from_cache is True
-    assert subset.from_superset is True
-    assert subset.entry_digest == superset_key.digest
+    assert subset.from_superset is False
+    assert subset.entry_digest == initial.entry_digest
     assert subset.row_count == len(subset_rows)
     assert dict(subset.requested_invariants) == {
         "channel": ("email",),
         "region": ("ca",),
     }
-    assert dict(subset.cached_invariants) == dict(superset.cached_invariants)
+    assert dict(subset.cached_invariants) == {}
 
-    miss_key = CacheKey.from_parts(
+    expanded_key = CacheKey.from_parts(
         "reports/channels",
         parameters={"view": "regional"},
         constants={"channel": "email", "region": "us|mx"},
         invariant_filters=config.invariants,
     )
+    assert expanded_key.digest == first_key.digest
 
-    miss = cache.fetch_or_populate(miss_key)
-    assert miss.to_pylist() == [
+    expanded = cache.fetch_or_populate(expanded_key)
+    assert expanded.to_pylist() == [
         {"channel": "email", "region": "US", "cohort": "north"},
         {"channel": "email", "region": "MX", "cohort": "south"},
     ]
-    assert call_counter["count"] == 2  # superset did not cover MX token
-    assert miss.from_cache is False
-    assert miss.from_superset is False
-    assert miss.entry_digest == miss_key.digest
-    assert miss.row_count == 2
-    assert dict(miss.requested_invariants) == {
+    assert call_counter["count"] == 1  # base cache reused without rerunning query
+    assert expanded.from_cache is True
+    assert expanded.from_superset is False
+    assert expanded.entry_digest == initial.entry_digest
+    assert expanded.row_count == 2
+    assert dict(expanded.requested_invariants) == {
         "channel": ("email",),
         "region": ("mx", "us"),
     }
+    assert dict(expanded.cached_invariants) == {}
 
-    miss_dir = tmp_cache_dir / miss_key.digest
-    miss_metadata = json.loads((miss_dir / "metadata.json").read_text())
-    assert miss_metadata["row_count"] == 2
-    assert miss_metadata["invariants"]["region"] == ["mx", "us"]
+    metadata_after_reuse = json.loads((entry_dir / "metadata.json").read_text())
+    assert metadata_after_reuse["row_count"] == table.num_rows
+    assert metadata_after_reuse["invariants"] == {}
 
 
 def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
@@ -383,10 +386,10 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     assert result.entry_digest == key.digest
     assert result.row_count == len(rows_vip)
     assert dict(result.requested_invariants) == {"segment": ("vip",)}
-    assert dict(result.cached_invariants) == {"segment": ("vip",)}
+    assert dict(result.cached_invariants) == {}
 
     metadata = json.loads((tmp_cache_dir / key.digest / "metadata.json").read_text())
-    assert metadata["invariants"]["segment"] == ["vip"]
+    assert metadata["invariants"] == {}
 
     # Case-insensitive tokens should produce the same cache key digest
     same_key = CacheKey.from_parts(
@@ -403,6 +406,7 @@ def test_case_insensitive_invariant_tokens(tmp_cache_dir: pathlib.Path) -> None:
     assert again.from_superset is False
     assert again.entry_digest == key.digest
     assert again.row_count == len(rows_vip)
+    assert dict(again.cached_invariants) == {}
 
 
 def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path) -> None:
@@ -445,4 +449,4 @@ def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path)
     assert result.entry_digest == key.digest
     assert result.row_count == 1
     assert dict(result.requested_invariants) == {"user_id": ("2",)}
-    assert dict(result.cached_invariants) == {"user_id": ("2",)}
+    assert dict(result.cached_invariants) == {}
