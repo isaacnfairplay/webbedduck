@@ -29,7 +29,7 @@ from .cache_support import (
     freeze_token_mapping,
     normalize_items,
 )
-from .cache_resolution import CacheFilterPipeline, SupersetResolver
+from .cache_resolution import CacheFilterPipeline
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -121,15 +121,23 @@ class CacheKey:
         }
         normalized_params = normalize_items(params_copy)
         filters = invariant_filters or {}
-        normalized_constants_tuple, invariant_tokens = encode_constants(const_copy, filters)
-        digest = compute_digest(route_slug, normalized_params, normalized_constants_tuple)
+        normalized_constants_tuple, invariant_tokens = encode_constants(
+            const_copy, filters
+        )
+        digest_constants = tuple(
+            item for item in normalized_constants_tuple if item[0] not in invariant_tokens
+        )
+        digest = compute_digest(route_slug, normalized_params, digest_constants)
+        non_invariant_constants = {
+            name: value for name, value in const_copy.items() if name not in filters
+        }
         return cls(
             route_slug=route_slug,
             parameters=normalized_params,
-            constants=normalized_constants_tuple,
+            constants=digest_constants,
             digest=digest,
             _raw_parameters=freeze_str_mapping(params_copy),
-            _raw_constants=freeze_str_mapping(const_copy),
+            _raw_constants=freeze_str_mapping(non_invariant_constants),
             _invariant_tokens=freeze_token_mapping(invariant_tokens),
         )
 
@@ -518,13 +526,14 @@ class CacheStorage:
         self._prepare_entry_dir(entry_dir)
         for index, page_table in enumerate(_iter_page_tables(table, page_size)):
             pq.write_table(page_table, entry_dir / f"page-{index:05d}.parquet")
+        invariant_payload = key.invariant_tokens if invariants is None else invariants
         metadata = CacheEntryMetadata.for_entry(
             key=key,
             table=table,
             created_at=created_at,
             ttl=ttl,
             page_size=page_size,
-            invariants=invariants or key.invariant_tokens,
+            invariants=invariant_payload,
         )
         self._write_metadata(entry_dir, metadata)
         return metadata.to_cache_entry(key=key, path=entry_dir)
@@ -596,29 +605,23 @@ class Cache:
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
         self._filters = CacheFilterPipeline(self._invariants)
-        self._supersets = SupersetResolver(self._invariants)
 
     def fetch_or_populate(self, key: CacheKey) -> CacheResult:
         now = self._clock()
         cached = self._resolve_cached_entry(key, now)
         if cached is not None:
-            entry, from_superset = cached
             return self._materialise_entry(
-                entry,
+                cached,
                 key=key,
-                from_superset=from_superset,
             )
 
         return self._populate_entry(key, now)
 
     def _resolve_cached_entry(
         self, key: CacheKey, now: datetime
-    ) -> tuple[CacheEntry, bool] | None:
+    ) -> CacheEntry | None:
         if (entry := self._storage.load_entry(key, now)) is not None:
-            return entry, False
-        superset_entry = self._supersets.find(self._storage, key, now)
-        if superset_entry is not None:
-            return superset_entry, True
+            return entry
         return None
 
     def _materialise_entry(
@@ -626,7 +629,6 @@ class Cache:
         entry: CacheEntry,
         *,
         key: CacheKey,
-        from_superset: bool,
     ) -> CacheResult:
         table = self._storage.read_entry(entry)
         filtered = self._filters.apply(table, key)
@@ -635,21 +637,21 @@ class Cache:
             key=key,
             entry=entry,
             from_cache=True,
-            from_superset=from_superset,
+            from_superset=False,
         )
 
     def _populate_entry(self, key: CacheKey, now: datetime) -> CacheResult:
         raw_table = _ensure_arrow_table(
             self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
         )
-        filtered = self._filters.apply(raw_table, key)
+        base_table = self._filters.apply(raw_table, key, include_invariants=False)
         entry = self._storage.write_entry(
             key,
-            filtered,
+            base_table,
             created_at=now,
             ttl=self._config.ttl,
             page_size=self._config.page_size,
-            invariants=key.invariant_tokens,
+            invariants={},
         )
         stored = self._storage.read_entry(entry)
         stored_filtered = self._filters.apply(stored, key)

@@ -15,7 +15,7 @@ The cache integration tests in `tests/server/test_cache.py` outline the expected
 ## Invariant filtering semantics
 - Requests specify invariant constants that are re-applied after reading cached pages (`test_invariant_filters_and_null_semantics`).
 - Filters support the `__null__` sentinel, returning only rows whose column is null when requested.
-- Combining invariants narrows the cached data set while leaving other columns intact, ensuring the cache can satisfy subset-style requests without rerunning DuckDB.
+- Combining invariants narrows the response while leaving the stored Parquet pages untouched. Because invariants are excluded from cache digests, the cache can satisfy any invariant combination without rerunning DuckDB once a base entry exists for the route parameters.
 
 ## Configuration overrides
 - `CacheConfig` accepts overrides for storage root, TTL, and page size, all of which are respected during fetch/populate cycles (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
@@ -29,5 +29,5 @@ The cache integration tests in `tests/server/test_cache.py` outline the expected
 - `Cache.fetch_or_populate` returns an immutable `ResponseEnvelope` (also exported as `CacheResult`) that pairs cache metadata with a `DataHandle` for the underlying rows (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
 - Arrow payloads are available via `envelope.as_arrow(page=...)`, returning a `pyarrow.Table` without a context manager. Binary and text encodings are opened through `envelope.data.open(format, page=...)`, which yields Parquet file handles, streaming CSV writers, JSON arrays, or JSONL/NDJSON lines as appropriate (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
 - Explicit page requests are **0-indexed**; `page=0` retrieves the first `page_size` rows and increments by one for subsequent slices (`test_fetch_or_populate_persists_pages_and_enforces_ttl`).
-- Callers can observe whether data came from disk or a fresh run via `from_cache` and `from_superset`, along with the serving entry digest, filtered row counts, and declared page sizing (`test_multi_value_invariant_superset_reuse_and_metadata`).
-- Requested invariant tokens and the backing cache entry's invariant set are surfaced as read-only mappings so routing layers can reason about superset reuse without touching on-disk JSON (`test_invariant_filters_and_null_semantics`, `test_case_insensitive_invariant_tokens`, `test_numeric_invariant_tokens_apply_column_type`).
+- Callers can observe whether data came from disk or a fresh run via `from_cache` (still paired with the entry digest, filtered row counts, and declared page sizing). The legacy `from_superset` flag remains for compatibility but is always `False` now that every request shares the same base entry (`test_invariant_requests_share_base_entry_and_metadata`).
+- Requested invariant tokens are surfaced as read-only mappings, while the cached invariant map stays empty to reflect that on-disk pages are stored without invariant filtering (`test_invariant_filters_and_null_semantics`, `test_case_insensitive_invariant_tokens`, `test_numeric_invariant_tokens_apply_column_type`).

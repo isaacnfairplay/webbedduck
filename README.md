@@ -9,7 +9,7 @@
 - **Templating pipeline** – `webbed_duck.constants.apply_constants` and the `_templating` package provide request context preparation, string whitelists, formatters, and template modifiers that render `{{ ctx.* }}` placeholders.【F:webbed_duck/constants.py†L1-L37】【F:webbed_duck/_templating/renderer.py†L16-L113】
 - **Parameter binding helpers** – `ParameterContext` supports coercion, defaults, template visibility, and guard checks (choices, regex, length, range, datetime windows, comparisons).【F:webbed_duck/_templating/binding.py†L23-L338】
 - **Request context orchestration** – `RequestContextStore` normalizes constants, merges formatter overrides, and enforces whitelists for string constants.【F:webbed_duck/_templating/state.py†L1-L131】
-- **Parquet-backed cache** – `webbed_duck.server.cache.Cache` materializes Arrow tables into paged Parquet files, applies invariant filters, and reuses supersets when possible.【F:webbed_duck/server/cache.py†L1-L310】【F:webbed_duck/server/cache.py†L311-L640】
+- **Parquet-backed cache** – `webbed_duck.server.cache.Cache` materializes Arrow tables into paged Parquet files, stores them without invariant filtering, and reapplies invariants per request.【F:webbed_duck/server/cache.py†L1-L310】【F:webbed_duck/server/cache.py†L311-L640】
 - **Engineering tooling** – `tools/complexity_report.py` already extracts Radon metrics, Halstead measures, and clone detection to help keep future contributions maintainable.【F:tools/complexity_report.py†L1-L123】
 
 ## Legacy functionality highlights
@@ -35,7 +35,7 @@
 ### Caching & data access
 | Feature | Legacy repo | This repo | Usefulness | Implementation complexity | Footguns / integration notes |
 | Parquet cache storage | Paged Parquet artifacts with invariant-aware reuse | Same primitives via `Cache` and `CacheStorage` | High – keeps hot slices on disk, supports sharing | Medium – we need to wire it into execution stack | Need deterministic ordering + schema validation before reuse |
-| Invariant filters & superset reuse | Supports case-insensitive tokens, shard recombination | Implemented via `InvariantFilter` tokens + superset checks | High – huge latency savings on multi-value filters | Medium – tie filter definitions to route metadata | Risk of mismatched invariant configuration causing stale hits |
+| Invariant filters with shared base entry | Supports case-insensitive tokens, filters applied on read | Implemented via `InvariantFilter` tokens and digest rules that ignore invariants | High – avoids rerunning DuckDB for invariant tweaks | Medium – filter definitions still live in route metadata | Stored pages include all invariant values, so clients must filter on read |
 | Arrow streaming outputs | Legacy exposes Arrow/IPC endpoints | Currently expect in-memory Arrow tables from runners | Medium – Arrow readers keep compatibility with clients | Medium – need streaming pipeline; also plan Parquet handoff | Arrow tables inflate memory footprint; adopt Parquet streaming earlier in stack |
 | Direct Parquet responses | HTTP `?format=parquet` streaming | Cache already writes Parquet; no HTTP surface yet | High – aligns with desire to avoid large Arrow payloads | Medium – once HTTP layer exists, reuse cache pages | Ensure file handles close cleanly; chunked transfer support needed |
 
