@@ -55,11 +55,38 @@ class TemplateRenderer:
             raise TemplateApplicationError("Empty template expression")
 
         base, *modifier_segments = segments
+        if base.startswith("webbed_duck."):
+            self._ensure_inline_directive(base)
+            return ""
+
         value = self._resolve_path(base)
         filtered_modifiers = [segment for segment in modifier_segments if segment]
         for modifier in filtered_modifiers:
             value = self._apply_modifier(value, modifier)
         return value
+
+    def _ensure_inline_directive(self, expression: str) -> None:
+        try:
+            node = ast.parse(expression, mode="eval").body
+        except SyntaxError as exc:  # pragma: no cover - validated via metadata tests
+            raise TemplateApplicationError(
+                f"Invalid inline directive '{expression}'"
+            ) from exc
+
+        if not isinstance(node, ast.Call):
+            raise TemplateApplicationError(
+                f"Inline directives must be function calls: '{expression}'"
+            )
+
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "webbed_duck"
+        ):
+            raise TemplateApplicationError(
+                f"Unsupported inline directive '{expression}'"
+            )
 
     def _resolve_path(self, path_expression: str) -> Any:
         try:
