@@ -91,6 +91,29 @@ class CacheSettings:
 CacheConfig = CacheSettings
 
 
+def _decode_mapping(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalise caller-provided mappings by stringifying keys and decoding nulls."""
+
+    if not payload:
+        return {}
+    return {str(key): decode_null(value) for key, value in payload.items()}
+
+
+def _prepare_constants_for_digest(
+    constants: Mapping[str, Any], filters: Mapping[str, InvariantFilter]
+) -> tuple[tuple[tuple[str, str], ...], Mapping[str, tuple[str, ...]], dict[str, Any]]:
+    """Split constants into digest inputs, invariant tokens, and caller-visible values."""
+
+    normalized_constants, invariant_tokens = encode_constants(constants, filters)
+    digest_constants = tuple(
+        item for item in normalized_constants if item[0] not in invariant_tokens
+    )
+    non_invariant_constants = {
+        name: value for name, value in constants.items() if name not in filters
+    }
+    return digest_constants, invariant_tokens, non_invariant_constants
+
+
 @dataclass(frozen=True)
 class CacheKey:
     """Immutable cache key identifying a cached query result."""
@@ -114,26 +137,14 @@ class CacheKey:
         constants: Mapping[str, Any] | None = None,
         invariant_filters: Mapping[str, InvariantFilter] | None = None,
     ) -> "CacheKey":
-        params_copy = {
-            str(key): decode_null(value)
-            for key, value in (parameters or {}).items()
-        }
-        const_copy = {
-            str(key): decode_null(value)
-            for key, value in (constants or {}).items()
-        }
+        params_copy = _decode_mapping(parameters)
+        const_copy = _decode_mapping(constants)
         normalized_params = normalize_items(params_copy)
-        filters = invariant_filters or {}
-        normalized_constants_tuple, invariant_tokens = encode_constants(
-            const_copy, filters
-        )
-        digest_constants = tuple(
-            item for item in normalized_constants_tuple if item[0] not in invariant_tokens
+        filters = invariant_filters if invariant_filters is not None else {}
+        digest_constants, invariant_tokens, non_invariant_constants = (
+            _prepare_constants_for_digest(const_copy, filters)
         )
         digest = compute_digest(route_slug, normalized_params, digest_constants)
-        non_invariant_constants = {
-            name: value for name, value in const_copy.items() if name not in filters
-        }
         return cls(
             route_slug=route_slug,
             parameters=normalized_params,

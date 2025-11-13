@@ -101,3 +101,8 @@
 - Introduce a `CacheMetadataSummary` dataclass plus a `peek_metadata` helper that reads only `metadata.json`, ensuring freshness checks match the response envelope while keeping Parquet untouched.
 - Add FastAPI response models and a `GET /cache/{digest}` route that exposes metadata summaries along with download URL templates for page-level exports.
 - Cover the helper and HTTP route with regression tests that assert the metadata flags mirror cached responses and that Parquet reads are skipped during metadata peeks.
+
+## Complexity reduction: cache key preparation helpers
+- Centralise cache parameter decoding through `_decode_mapping` so `CacheKey.from_parts` stops repeating key/value normalisation logic.
+- Extract `_prepare_constants_for_digest` to derive digest inputs, invariant tokens, and caller-visible constants in one place, reducing the function's branching.
+- Document the hotspot-selection heuristics in `lessons_learned/refactor_point_selection.md` to capture how metrics guide the next refactor target.
