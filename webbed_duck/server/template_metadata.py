@@ -5,16 +5,19 @@ from __future__ import annotations
 import ast
 import re
 import shlex
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping, MutableMapping, Sequence, TypeVar
+from typing import Any, Callable, Iterable, Mapping, MutableMapping, Sequence, TypeVar
 
 from webbed_duck._templating.binding import ParameterSpec, ValidationContext
 from webbed_duck._templating.parameters import ParameterWhitelist
 
 from .cache import CacheConfig
 from .cache_support import InvariantFilter
+from ._whitelist import build_whitelist_options
 
 __all__ = [
     "TemplateMetadataError",
@@ -125,13 +128,15 @@ def build_route_registry(
     if not template_root.exists():
         return MappingProxyType({})
 
+    validation_map = validations or {}
+
     routes: dict[str, RouteDescription] = {}
     for path in sorted(template_root.rglob("*")):
         if not path.is_file() or not _looks_like_sql_template(path):
             continue
         template_text = path.read_text(encoding="utf-8")
         slug = _slug_for_template(path, template_root)
-        validation = validations.get(slug) if validations else None
+        validation = validation_map.get(slug)
         metadata = collect_template_metadata(
             template_text,
             request_context=request_context,
@@ -147,14 +152,13 @@ def build_route_registry(
     return MappingProxyType(routes)
 
 
-_PLACEHOLDER = re.compile(r"{{\s*(.*?)\s*}}")
+_PLACEHOLDER = re.compile(r"{{\s*(webbed_duck\..*?)\s*}}")
+_COMMENT_DIRECTIVE = re.compile(r"(?:--|#)\s*webbed_duck:(?P<body>.*)")
 
 
 def _parse_inline_directives(template: str) -> Iterable[TemplateDirective]:
     for match in _PLACEHOLDER.finditer(template):
         expression = match.group(1).strip()
-        if not expression.startswith("webbed_duck."):
-            continue
         line_number = template.count("\n", 0, match.start()) + 1
         directive = _parse_inline_expression(expression, line_number)
         if directive is not None:
@@ -162,53 +166,42 @@ def _parse_inline_directives(template: str) -> Iterable[TemplateDirective]:
 
 
 def _parse_inline_expression(expression: str, line: int) -> TemplateDirective | None:
-    try:
-        node = ast.parse(expression, mode="eval").body
-    except SyntaxError as exc:  # pragma: no cover - surfaced in tests
-        raise TemplateMetadataError(
-            f"Invalid inline directive on line {line}: {expression!r}"
-        ) from exc
+    node = _parse_expression(expression, line)
+    match node:
+        case ast.Call(
+            func=ast.Attribute(attr=kind, value=ast.Name(id="webbed_duck")),
+            args=call_args,
+            keywords=call_keywords,
+        ):
+            pass
+        case _:
+            return None
 
-    if not isinstance(node, ast.Call):
-        return None
-
-    func = node.func
-    if not (
-        isinstance(func, ast.Attribute)
-        and isinstance(func.value, ast.Name)
-        and func.value.id == "webbed_duck"
-    ):
-        return None
-
-    if any(keyword.arg is None for keyword in node.keywords):
+    if any(keyword.arg is None for keyword in call_keywords):
         raise TemplateMetadataError(
             f"Directive on line {line} does not support **kwargs"
         )
 
-    args = [_literal_eval(arg, line) for arg in node.args]
+    args = [_literal_eval(arg, line) for arg in call_args]
+    if len(args) > 2:
+        raise TemplateMetadataError(
+            f"Directive on line {line} accepts at most two positional arguments"
+        )
     kwargs: MutableMapping[str, Any] = {
         keyword.arg: _literal_eval(keyword.value, line)
-        for keyword in node.keywords
+        for keyword in call_keywords
     }
-
     target = kwargs.pop("target", args[0] if args else None)
-    name = kwargs.pop("name", args[1] if len(args) > 1 else None)
-
     if target is None:
         raise TemplateMetadataError(
             f"Directive on line {line} must provide a 'target'"
         )
+    name = kwargs.pop("name", args[1] if len(args) > 1 else None)
     if name is None:
         raise TemplateMetadataError(
             f"Directive on line {line} must provide a 'name'"
         )
 
-    if len(args) > 2:
-        raise TemplateMetadataError(
-            f"Directive on line {line} accepts at most two positional arguments"
-        )
-
-    kind = func.attr
     options = _freeze_mapping(kwargs)
     return TemplateDirective(
         kind=kind,
@@ -218,6 +211,17 @@ def _parse_inline_expression(expression: str, line: int) -> TemplateDirective | 
         source="inline",
         line=line,
     )
+
+
+def _parse_expression(expression: str, line: int) -> ast.AST:
+    try:
+        return ast.parse(expression, mode="eval").body
+    except SyntaxError as exc:  # pragma: no cover - surfaced in tests
+        raise TemplateMetadataError(
+            f"Invalid inline directive on line {line}: {expression!r}"
+        ) from exc
+
+
 
 
 def _literal_eval(node: ast.AST, line: int) -> Any:
@@ -231,15 +235,10 @@ def _literal_eval(node: ast.AST, line: int) -> Any:
 
 def _parse_comment_directives(template: str) -> Iterable[TemplateDirective]:
     for line_number, raw_line in enumerate(template.splitlines(), start=1):
-        directive_body: str | None = None
-        for marker in ("-- webbed_duck:", "# webbed_duck:"):
-            marker_index = raw_line.find(marker)
-            if marker_index == -1:
-                continue
-            directive_body = raw_line[marker_index + len(marker) :].strip()
-            break
-        if directive_body is None:
+        match = _COMMENT_DIRECTIVE.search(raw_line)
+        if match is None:
             continue
+        directive_body = match.group("body").strip()
         if not directive_body:
             raise TemplateMetadataError(
                 f"Directive at line {line_number} is missing a payload"
@@ -270,11 +269,12 @@ def _parse_options(body: str, line_number: int) -> MutableMapping[str, Any]:
     tokens = shlex.split(body, comments=False, posix=True)
     options: MutableMapping[str, Any] = {}
     for token in tokens:
-        if "=" not in token:
+        try:
+            key, value = token.split("=", 1)
+        except ValueError as exc:
             raise TemplateMetadataError(
                 f"Malformed token '{token}' in directive on line {line_number}"
-            )
-        key, value = token.split("=", 1)
+            ) from exc
         options[key] = _coerce_value(value)
     return options
 
@@ -310,18 +310,9 @@ def _iter_whitelist_directives(
 
     directives: list[TemplateDirective] = []
     for group, config in parameters.items():
-        if not isinstance(config, Mapping):
+        options = build_whitelist_options(config)
+        if options is None:
             continue
-        whitelist_spec = config.get("whitelist")
-        if whitelist_spec is None:
-            continue
-        resolved = _resolve_whitelist(whitelist_spec)
-        if resolved is None:
-            continue
-        label = getattr(whitelist_spec, "label", config.get("label", "whitelist"))
-        options: dict[str, Any] = {"values": resolved}
-        if label:
-            options["label"] = str(label)
         directives.append(
             TemplateDirective(
                 kind="whitelist",
@@ -334,15 +325,6 @@ def _iter_whitelist_directives(
     return tuple(directives)
 
 
-def _resolve_whitelist(spec: Any) -> tuple[Any, ...] | None:
-    if isinstance(spec, ParameterWhitelist):
-        resolved = spec.resolve()
-        return tuple(sorted(resolved))
-    if isinstance(spec, (set, frozenset)):
-        return tuple(sorted(spec))
-    if isinstance(spec, (list, tuple)):
-        return tuple(spec)
-    return None
 
 
 def _iter_validation_directives(
@@ -365,79 +347,109 @@ def _resolve_parameter_specs(
         return {}
     if isinstance(validation, ValidationContext):
         return validation.specs
-    if not isinstance(validation, Mapping):
+    parameter_mapping = _extract_parameter_mapping(validation)
+    if parameter_mapping is None:
         return {}
+    return {
+        name: ParameterSpec.from_manifest(name, data)
+        for name, data in parameter_mapping.items()
+        if isinstance(data, Mapping)
+    }
+
+
+def _extract_parameter_mapping(
+    validation: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    if not isinstance(validation, MappingABC):
+        return None
     parameters = validation.get("parameters")
     if not isinstance(parameters, Mapping):
-        return {}
-    specs: dict[str, ParameterSpec] = {}
-    for name, data in parameters.items():
-        if isinstance(data, Mapping):
-            specs[name] = ParameterSpec.from_manifest(name, data)
-    return specs
+        return None
+    return parameters
 
 
-def _directives_for_spec(spec: ParameterSpec, *, parameter: str) -> list[TemplateDirective]:
+GuardDirectiveBuilder = Callable[[str, Any], tuple[TemplateDirective, ...]]
+
+
+def _directives_for_spec(
+    spec: ParameterSpec, *, parameter: str
+) -> tuple[TemplateDirective, ...]:
     if not spec.guards:
-        return []
+        return ()
 
     directives: list[TemplateDirective] = []
     target = f"parameters.{parameter}"
     for guard_name, payload in spec.guards.items():
-        if guard_name == "choices":
-            values = _as_iterable(payload)
-            if values is None:
-                continue
-            directives.append(
-                _validation_directive(target, "choices", {"values": values})
-            )
-        elif guard_name == "regex" and isinstance(payload, str):
-            directives.append(
-                _validation_directive(target, "regex", {"pattern": payload})
-            )
-        elif guard_name == "length" and isinstance(payload, Mapping):
-            options = {
-                key: payload[key]
-                for key in ("min", "max")
-                if payload.get(key) is not None
-            }
-            if options:
-                directives.append(
-                    _validation_directive(target, "length", options)
-                )
-        elif guard_name == "range" and isinstance(payload, Mapping):
-            options = {
-                key: payload[key]
-                for key in ("min", "max")
-                if payload.get(key) is not None
-            }
-            if options:
-                directives.append(
-                    _validation_directive(target, "range", options)
-                )
-        elif guard_name == "datetime_window" and isinstance(payload, Mapping):
-            options = {
-                key: payload[key]
-                for key in ("earliest", "latest")
-                if payload.get(key) is not None
-            }
-            if options:
-                directives.append(
-                    _validation_directive(target, "datetime_window", options)
-                )
-        elif guard_name == "compare" and isinstance(payload, Mapping):
-            other = payload.get("parameter")
-            operator = payload.get("operator")
-            options: dict[str, Any] = {}
-            if other is not None:
-                options["parameter"] = other
-            if operator is not None:
-                options["operator"] = operator
-            if options:
-                directives.append(
-                    _validation_directive(target, "compare", options)
-                )
-    return directives
+        handler = _GUARD_HANDLERS.get(guard_name)
+        if handler is None:
+            continue
+        directives.extend(handler(target, payload))
+    return tuple(directives)
+
+
+def _choices_guard_directives(
+    target: str, payload: Any
+) -> tuple[TemplateDirective, ...]:
+    values = _as_iterable(payload)
+    if values is None:
+        return ()
+    return (_validation_directive(target, "choices", {"values": values}),)
+
+
+def _regex_guard_directives(
+    target: str, payload: Any
+) -> tuple[TemplateDirective, ...]:
+    if not isinstance(payload, str):
+        return ()
+    return (_validation_directive(target, "regex", {"pattern": payload}),)
+
+
+def _build_mapping_guard_directives(
+    target: str,
+    payload: Any,
+    directive_name: str,
+    keys: Sequence[str],
+) -> tuple[TemplateDirective, ...]:
+    options = _filter_guard_options(payload, keys)
+    if not options:
+        return ()
+    return (_validation_directive(target, directive_name, options),)
+
+
+def _filter_guard_options(
+    payload: Any, keys: Sequence[str]
+) -> Mapping[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    filtered = dict(
+        filter(
+            lambda item: item[1] is not None,
+            ((key, payload.get(key)) for key in keys),
+        )
+    )
+    return filtered or None
+
+
+_GUARD_HANDLERS: Mapping[str, GuardDirectiveBuilder] = {
+    "choices": _choices_guard_directives,
+    "regex": _regex_guard_directives,
+    "length": partial(
+        _build_mapping_guard_directives, directive_name="length", keys=("min", "max")
+    ),
+    "range": partial(
+        _build_mapping_guard_directives, directive_name="range", keys=("min", "max")
+    ),
+    "datetime_window": partial(
+        _build_mapping_guard_directives,
+        directive_name="datetime_window",
+        keys=("earliest", "latest"),
+    ),
+    "compare": partial(
+        _build_mapping_guard_directives,
+        directive_name="compare",
+        keys=("parameter", "operator"),
+    ),
+}
 
 
 def _validation_directive(
