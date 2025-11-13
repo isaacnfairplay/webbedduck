@@ -1,5 +1,10 @@
 # Branch Changelog
 
+## Complexity reduction: directive guard dispatch
+- Replace the branching-heavy `_directives_for_spec` guard handling with a data-driven registry so each guard declares a concise builder.
+- Add focused helpers for choices, regex, mapping-based, and compare guards to cut duplicated filtering logic while preserving option semantics.
+- Document the selection approach in `lessons_learned/refactor_selection.md` so future refactors start from hotspot data instead of intuition.
+
 ## Refactor cache response contract
 - Replace the Arrow-centric `CacheResult` payload with a `ResponseEnvelope` and `DataHandle` that advertise available formats and page counts.
 - Persist configured page sizes alongside cached metadata so clients can request specific pages across formats.
