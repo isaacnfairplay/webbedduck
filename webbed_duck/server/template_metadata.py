@@ -89,6 +89,7 @@ class RouteDescription:
     template_path: Path
     metadata: TemplateMetadata
     invariants: Mapping[str, InvariantDescriptor]
+    validation: ValidationContext | None = None
 
 
 _T = TypeVar("_T")
@@ -136,17 +137,19 @@ def build_route_registry(
             continue
         template_text = path.read_text(encoding="utf-8")
         slug = _slug_for_template(path, template_root)
-        validation = validation_map.get(slug)
+        raw_validation = validation_map.get(slug)
+        validation_context = _normalise_validation_context(raw_validation)
         metadata = collect_template_metadata(
             template_text,
             request_context=request_context,
-            validation=validation,
+            validation=validation_context,
         )
         routes[slug] = RouteDescription(
             slug=slug,
             template_path=path,
             metadata=metadata,
             invariants=invariant_descriptors,
+            validation=validation_context,
         )
 
     return MappingProxyType(routes)
@@ -355,6 +358,18 @@ def _resolve_parameter_specs(
         for name, data in parameter_mapping.items()
         if isinstance(data, Mapping)
     }
+
+
+def _normalise_validation_context(
+    validation: Mapping[str, Any] | ValidationContext | None,
+) -> ValidationContext | None:
+    if validation is None:
+        return None
+    if isinstance(validation, ValidationContext):
+        return validation
+    if isinstance(validation, MappingABC):
+        return ValidationContext.from_manifest(validation)
+    return None
 
 
 def _extract_parameter_mapping(

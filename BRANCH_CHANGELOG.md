@@ -1,5 +1,10 @@
 # Branch Changelog
 
+## Follow-up: HTTP route execution complexity trims
+- Extract `_resolve_route_request`, `_ensure_supported_format`, and chunk-specific helpers inside `webbed_duck/server/http/app.py` so parameter binding, cache key creation, and streaming payloads each have focused, low-branch responsibilities.
+- Rework `_stream_handle` to reuse the new helpers and cut duplicate read loops while keeping Arrow, CSV/JSON, and Parquet behaviour unchanged.
+- Capture the complexity report outputs for the HTTP stack to document how the reorganised helpers keep cyclomatic scores for the FastAPI surface in check.
+
 ## Complexity reduction: directive guard dispatch
 - Replace the branching-heavy `_directives_for_spec` guard handling with a data-driven registry so each guard declares a concise builder.
 - Add focused helpers for choices, regex, mapping-based, and compare guards to cut duplicated filtering logic while preserving option semantics.
@@ -106,3 +111,9 @@
 - Introduce a `CacheMetadataSummary` dataclass plus a `peek_metadata` helper that reads only `metadata.json`, ensuring freshness checks match the response envelope while keeping Parquet untouched.
 - Add FastAPI response models and a `GET /cache/{digest}` route that exposes metadata summaries along with download URL templates for page-level exports.
 - Cover the helper and HTTP route with regression tests that assert the metadata flags mirror cached responses and that Parquet reads are skipped during metadata peeks.
+
+## FastAPI route executor and streaming endpoints
+- Add a `create_route_app` helper that wires the cache, request context store, DuckDB executor, and compiled route registry into a FastAPI application.
+- Surface `POST /routes/{slug}` to validate parameters via `_templating.binding`, fetch or populate the cache, and return the response envelope metadata alongside cache page templates.
+- Expand the cache router with `/cache/{digest}/pages/{page}` streaming plus new Pydantic models so the metadata and route APIs share the same download contract.
+- Cover the HTTP stack with regression tests that spin up `TestClient`, submit parameter payloads end-to-end, and assert cache hits/misses as well as streamed JSON payloads line up with expectations.

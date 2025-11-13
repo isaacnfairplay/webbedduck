@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..cache import CacheMetadataSummary
+from ..cache import CacheMetadataSummary, ResponseEnvelope
 
 
 class PageTemplate(BaseModel):
@@ -62,4 +62,71 @@ class CacheMetadataResponse(BaseModel):
         )
 
 
-__all__ = ["CacheMetadataResponse", "PageTemplate"]
+class RouteExecutionRequest(BaseModel):
+    """Request payload for executing a SQL route."""
+
+    parameters: dict[str, object] = Field(default_factory=dict)
+    constants: dict[str, object] = Field(default_factory=dict)
+
+
+class RouteExecutionResponse(BaseModel):
+    """JSON serialisable view over cache metadata returned for a route."""
+
+    digest: str
+    route_slug: str
+    parameters: dict[str, object]
+    constants: dict[str, object]
+    row_count: int
+    page_size: int
+    page_count: int
+    created_at: datetime | None
+    expires_at: datetime | None
+    from_cache: bool
+    from_superset: bool
+    formats: tuple[str, ...]
+    requested_invariants: dict[str, tuple[str, ...]]
+    cached_invariants: dict[str, tuple[str, ...]]
+    page_template: PageTemplate
+
+    @classmethod
+    def from_envelope(
+        cls,
+        envelope: ResponseEnvelope,
+        *,
+        slug: str,
+        digest: str,
+        parameters: dict[str, object],
+        constants: dict[str, object],
+        page_url_template: str,
+    ) -> "RouteExecutionResponse":
+        return cls(
+            digest=digest,
+            route_slug=slug,
+            parameters=parameters,
+            constants=constants,
+            row_count=envelope.row_count,
+            page_size=envelope.page_size,
+            page_count=envelope.page_count,
+            created_at=envelope.created_at,
+            expires_at=envelope.expires_at,
+            from_cache=envelope.from_cache,
+            from_superset=envelope.from_superset,
+            formats=envelope.formats,
+            requested_invariants={
+                name: tuple(tokens)
+                for name, tokens in envelope.requested_invariants.items()
+            },
+            cached_invariants={
+                name: tuple(tokens)
+                for name, tokens in envelope.cached_invariants.items()
+            },
+            page_template=PageTemplate(url=page_url_template),
+        )
+
+
+__all__ = [
+    "CacheMetadataResponse",
+    "PageTemplate",
+    "RouteExecutionRequest",
+    "RouteExecutionResponse",
+]

@@ -143,6 +143,8 @@ def test_build_route_registry_combines_metadata_and_invariants(tmp_path: Path) -
     assert description.template_path == template_path
     assert "region" in description.invariants
     assert description.invariants["region"].case_insensitive is True
+    assert description.validation is not None
+    assert set(description.validation.specs) == {"limit"}
 
     validators = description.metadata.validators
     validator_names = {(directive.target, directive.name) for directive in validators}
