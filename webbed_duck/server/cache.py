@@ -494,6 +494,26 @@ class ResponseEnvelope:
 CacheResult = ResponseEnvelope
 
 
+@dataclass(frozen=True)
+class CacheMetadataSummary:
+    """Lightweight snapshot of an on-disk cache entry."""
+
+    digest: str
+    route_slug: str
+    parameters: Mapping[str, Any]
+    constants: Mapping[str, Any]
+    row_count: int
+    page_size: int
+    page_count: int
+    created_at: datetime
+    expires_at: datetime
+    from_cache: bool
+    from_superset: bool
+    formats: tuple[str, ...]
+    requested_invariants: Mapping[str, tuple[str, ...]]
+    cached_invariants: Mapping[str, tuple[str, ...]]
+
+
 class CacheStorage:
     """Disk-backed storage abstraction used by the cache."""
 
@@ -588,6 +608,41 @@ class CacheStorage:
     def _write_metadata(self, entry_dir: Path, metadata: CacheEntryMetadata) -> None:
         metadata_path = self._metadata_path(entry_dir)
         metadata_path.write_text(json.dumps(metadata.to_record(), sort_keys=True))
+
+
+def peek_metadata(
+    storage: CacheStorage, digest: str, *, now: datetime | None = None
+) -> CacheMetadataSummary | None:
+    """Load cache metadata without touching Parquet pages.
+
+    Returns ``None`` when the requested entry is missing or expired.
+    """
+
+    entry_dir = storage._root / digest
+    metadata_path = storage._metadata_path(entry_dir)
+    if not metadata_path.exists():
+        return None
+    metadata = storage._read_metadata(metadata_path)
+    moment = now or _utc_now()
+    if storage._evict_if_expired(entry_dir, metadata.expires_at, moment):
+        return None
+    page_count = 0 if metadata.row_count == 0 else math.ceil(metadata.row_count / metadata.page_size)
+    return CacheMetadataSummary(
+        digest=digest,
+        route_slug=metadata.route_slug,
+        parameters=metadata.raw_parameters,
+        constants=metadata.raw_constants,
+        row_count=metadata.row_count,
+        page_size=metadata.page_size,
+        page_count=page_count,
+        created_at=metadata.created_at,
+        expires_at=metadata.expires_at,
+        from_cache=True,
+        from_superset=False,
+        formats=tuple(sorted(DataHandle._ADAPTERS)),
+        requested_invariants=freeze_token_mapping({}),
+        cached_invariants=metadata.invariants,
+    )
 
 
 class Cache:
