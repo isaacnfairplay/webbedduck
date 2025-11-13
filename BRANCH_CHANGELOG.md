@@ -91,3 +91,8 @@
 - Add a dedicated reference template under `examples/route_templates/reference/` that demonstrates inline validator calls alongside real whitelist and range guards.
 - Generate `test_docs/template_metadata_dsl_reference.md` from the test suite so the documented DSL, sample SQL, and collected metadata stay in sync.
 - Extend the template metadata tests with helpers that render the DSL reference, covering inline directives, validation-derived annotations, and aggregated route registry output.
+
+## Cache concurrency guard and regression test
+- Protect cache population with per-digest mutexes so directory creation, Parquet writes, and metadata persistence happen once per key even under concurrent requests.
+- Re-check for freshly written entries while holding the mutex to avoid rerunning queries when a peer request already populated the cache.
+- Add a regression test that spawns two threads targeting the same key and asserts that both handles are valid while only one set of Parquet pages hits disk.

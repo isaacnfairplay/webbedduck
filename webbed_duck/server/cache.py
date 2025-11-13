@@ -6,11 +6,13 @@ import contextlib
 import json
 import io
 import shutil
+import threading
 from dataclasses import dataclass, field
 from functools import partial
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
+from collections import defaultdict
 from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, TextIO
 
 import pyarrow as pa
@@ -605,6 +607,8 @@ class Cache:
         self._storage = storage or CacheStorage(config.storage_root)
         self._invariants = dict(config.invariants)
         self._filters = CacheFilterPipeline(self._invariants)
+        self._entry_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
+        self._entry_locks_guard = threading.Lock()
 
     def fetch_or_populate(self, key: CacheKey) -> CacheResult:
         now = self._clock()
@@ -624,6 +628,10 @@ class Cache:
             return entry
         return None
 
+    def _lock_for_digest(self, digest: str) -> threading.Lock:
+        with self._entry_locks_guard:
+            return self._entry_locks[digest]
+
     def _materialise_entry(
         self,
         entry: CacheEntry,
@@ -641,18 +649,25 @@ class Cache:
         )
 
     def _populate_entry(self, key: CacheKey, now: datetime) -> CacheResult:
-        raw_table = _ensure_arrow_table(
-            self._run_query(key.route_slug, dict(key.parameter_values), dict(key.constant_values))
-        )
-        base_table = self._filters.apply(raw_table, key, include_invariants=False)
-        entry = self._storage.write_entry(
-            key,
-            base_table,
-            created_at=now,
-            ttl=self._config.ttl,
-            page_size=self._config.page_size,
-            invariants={},
-        )
+        entry_lock = self._lock_for_digest(key.digest)
+        with entry_lock:
+            now = self._clock()
+            if (cached := self._resolve_cached_entry(key, now)) is not None:
+                return self._materialise_entry(cached, key=key)
+            raw_table = _ensure_arrow_table(
+                self._run_query(
+                    key.route_slug, dict(key.parameter_values), dict(key.constant_values)
+                )
+            )
+            base_table = self._filters.apply(raw_table, key, include_invariants=False)
+            entry = self._storage.write_entry(
+                key,
+                base_table,
+                created_at=now,
+                ttl=self._config.ttl,
+                page_size=self._config.page_size,
+                invariants={},
+            )
         stored = self._storage.read_entry(entry)
         stored_filtered = self._filters.apply(stored, key)
         return self._build_result(
