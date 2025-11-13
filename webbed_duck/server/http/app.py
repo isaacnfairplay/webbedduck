@@ -28,7 +28,7 @@ def create_cache_router(storage: CacheStorage) -> APIRouter:
         summary = peek_metadata(store, digest)
         if summary is None:
             raise HTTPException(status_code=404, detail="Cache entry not found")
-        template = _build_page_template(request, digest)
+        template = _build_page_template(request, summary.digest)
         return CacheMetadataResponse.from_summary(summary, page_url_template=template)
 
     return router

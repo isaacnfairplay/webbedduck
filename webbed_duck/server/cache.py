@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import json
 import io
+import math
+import re
 import shutil
 import threading
 from dataclasses import dataclass, field
 from functools import partial
 from datetime import datetime, timedelta, timezone
-import math
 from pathlib import Path
 from collections import defaultdict
 from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, TextIO
@@ -618,7 +619,9 @@ def peek_metadata(
     Returns ``None`` when the requested entry is missing or expired.
     """
 
-    entry_dir = storage._root / digest
+    if (sanitised := _normalise_digest(digest)) is None:
+        return None
+    entry_dir = storage._root / sanitised
     metadata_path = storage._metadata_path(entry_dir)
     if not metadata_path.exists():
         return None
@@ -628,7 +631,7 @@ def peek_metadata(
         return None
     page_count = 0 if metadata.row_count == 0 else math.ceil(metadata.row_count / metadata.page_size)
     return CacheMetadataSummary(
-        digest=digest,
+        digest=sanitised,
         route_slug=metadata.route_slug,
         parameters=metadata.raw_parameters,
         constants=metadata.raw_constants,
@@ -643,6 +646,18 @@ def peek_metadata(
         requested_invariants=freeze_token_mapping({}),
         cached_invariants=metadata.invariants,
     )
+
+
+_DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _normalise_digest(candidate: str) -> str | None:
+    """Ensure the provided digest matches the on-disk naming scheme."""
+
+    digest = candidate.strip().lower()
+    if _DIGEST_PATTERN.fullmatch(digest) is None:
+        return None
+    return digest
 
 
 class Cache:

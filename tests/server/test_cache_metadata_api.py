@@ -86,3 +86,20 @@ def test_cache_metadata_endpoint_returns_summary(tmp_path):
     assert template_url.endswith(
         f"/cache/{key.digest}/pages/{{page}}?format={{format}}"
     )
+
+
+def test_peek_metadata_rejects_invalid_digest(tmp_path):
+    storage_root = tmp_path / "cache"
+    storage = CacheStorage(storage_root)
+
+    assert peek_metadata(storage, "../etc/passwd") is None
+    assert peek_metadata(storage, "not-a-digest") is None
+
+
+def test_cache_metadata_endpoint_rejects_invalid_digest(tmp_path):
+    storage_root = tmp_path / "cache"
+    app = create_cache_app(CacheStorage(storage_root))
+    client = TestClient(app)
+
+    response = client.get("/cache/..%2F..%2Fetc%2Fpasswd")
+    assert response.status_code == 404
