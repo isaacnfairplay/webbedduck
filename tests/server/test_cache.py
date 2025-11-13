@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import pathlib
+import threading
 from typing import Any, Dict
 
 import pytest
@@ -13,7 +14,7 @@ duckdb = pytest.importorskip("duckdb")
 pa = pytest.importorskip("pyarrow")
 pq = pytest.importorskip("pyarrow.parquet")
 
-from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, InvariantFilter
+from webbed_duck.server.cache import Cache, CacheConfig, CacheKey, CacheResult, InvariantFilter
 
 
 class _Clock:
@@ -450,3 +451,59 @@ def test_numeric_invariant_tokens_apply_column_type(tmp_cache_dir: pathlib.Path)
     assert result.row_count == 1
     assert dict(result.requested_invariants) == {"user_id": ("2",)}
     assert dict(result.cached_invariants) == {}
+
+
+def test_populate_serialized_per_cache_key(tmp_cache_dir: pathlib.Path) -> None:
+    clock = _Clock(_dt.datetime(2024, 1, 1, tzinfo=_dt.timezone.utc))
+    config = CacheConfig(storage_root=tmp_cache_dir, ttl=_dt.timedelta(minutes=5), page_size=10)
+
+    rows = [(1, "alpha"), (2, "beta")]
+    columns = ["id", "name"]
+    table = _build_duckdb_table(rows, columns)
+
+    call_counter: dict[str, int] = {"count": 0}
+    runner_started = threading.Event()
+    release_runner = threading.Event()
+
+    def runner(route_slug: str, parameters: Dict[str, Any], constants: Dict[str, Any]) -> pa.Table:
+        call_counter["count"] += 1
+        runner_started.set()
+        release_runner.wait(timeout=5)
+        return table
+
+    cache = Cache(config=config, run_query=runner, clock=clock.now)
+    key = CacheKey.from_parts("reports/concurrency", parameters={"view": "all"})
+
+    barrier = threading.Barrier(2)
+    results: list[CacheResult | None] = [None, None]
+
+    def worker(slot: int) -> None:
+        barrier.wait()
+        results[slot] = cache.fetch_or_populate(key)
+
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+
+    assert runner_started.wait(timeout=5), "Query runner never executed"
+    release_runner.set()
+
+    for thread in threads:
+        thread.join(timeout=5)
+
+    first, second = results
+    assert first is not None and second is not None
+    assert first.to_pylist() == table.to_pylist()
+    assert second.to_pylist() == table.to_pylist()
+    assert first.entry_digest == key.digest
+    assert second.entry_digest == key.digest
+    assert {first.from_cache, second.from_cache} == {False, True}
+    assert call_counter["count"] == 1
+
+    entry_dir = tmp_cache_dir / key.digest
+    assert entry_dir.exists()
+    assert len(list(tmp_cache_dir.iterdir())) == 1
+    pages = sorted(entry_dir.glob("page-*.parquet"))
+    assert len(pages) == 1
+    with first.data.open("parquet", page=0) as parquet_stream:
+        assert pq.read_table(parquet_stream).to_pylist() == table.to_pylist()
