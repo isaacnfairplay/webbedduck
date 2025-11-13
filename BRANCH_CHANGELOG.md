@@ -96,3 +96,8 @@
 - Protect cache population with per-digest mutexes so directory creation, Parquet writes, and metadata persistence happen once per key even under concurrent requests.
 - Re-check for freshly written entries while holding the mutex to avoid rerunning queries when a peer request already populated the cache.
 - Add a regression test that spawns two threads targeting the same key and asserts that both handles are valid while only one set of Parquet pages hits disk.
+
+## Cache metadata peek API and HTTP surface
+- Introduce a `CacheMetadataSummary` dataclass plus a `peek_metadata` helper that reads only `metadata.json`, ensuring freshness checks match the response envelope while keeping Parquet untouched.
+- Add FastAPI response models and a `GET /cache/{digest}` route that exposes metadata summaries along with download URL templates for page-level exports.
+- Cover the helper and HTTP route with regression tests that assert the metadata flags mirror cached responses and that Parquet reads are skipped during metadata peeks.
