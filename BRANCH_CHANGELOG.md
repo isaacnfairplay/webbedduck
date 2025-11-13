@@ -1,5 +1,10 @@
 # Branch Changelog
 
+## Complexity reduction: guard builder registry
+- Replace the branchy `_directives_for_spec` loop with a guard-to-builder registry so each validator shape is handled by a tiny, testable helper.
+- Share bounds extraction and compare option filtering helpers to eliminate repeated mapping checks while keeping existing directive payloads intact.
+- Capture the guard-selection heuristics in `lessons_learned/refactor_point_selection.md` so future contributors can quickly spot worthwhile refactor targets.
+
 ## Refactor cache response contract
 - Replace the Arrow-centric `CacheResult` payload with a `ResponseEnvelope` and `DataHandle` that advertise available formats and page counts.
 - Persist configured page sizes alongside cached metadata so clients can request specific pages across formats.
