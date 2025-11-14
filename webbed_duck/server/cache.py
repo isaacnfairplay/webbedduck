@@ -68,6 +68,32 @@ def _iter_page_tables(table: pa.Table, page_size: int) -> Iterator[pa.Table]:
         yield table
 
 
+def _decode_cache_items(
+    items: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a stable dictionary of decoded cache inputs."""
+
+    if not items:
+        return {}
+    return {str(key): decode_null(value) for key, value in items.items()}
+
+
+def _partition_constants(
+    constants: Mapping[str, Any],
+    filters: Mapping[str, InvariantFilter],
+) -> tuple[tuple[tuple[str, str], ...], Mapping[str, tuple[str, ...]], dict[str, Any]]:
+    """Split constants into digest, invariant token, and runtime buckets."""
+
+    normalized_constants, invariant_tokens = encode_constants(constants, filters)
+    digest_constants = tuple(
+        item for item in normalized_constants if item[0] not in invariant_tokens
+    )
+    non_invariant_constants = {
+        name: value for name, value in constants.items() if name not in filters
+    }
+    return digest_constants, invariant_tokens, non_invariant_constants
+
+
 @dataclass(frozen=True)
 class CacheSettings:
     """Cache behaviour configuration, including invariant filter metadata."""
@@ -114,26 +140,14 @@ class CacheKey:
         constants: Mapping[str, Any] | None = None,
         invariant_filters: Mapping[str, InvariantFilter] | None = None,
     ) -> "CacheKey":
-        params_copy = {
-            str(key): decode_null(value)
-            for key, value in (parameters or {}).items()
-        }
-        const_copy = {
-            str(key): decode_null(value)
-            for key, value in (constants or {}).items()
-        }
+        params_copy = _decode_cache_items(parameters)
+        const_copy = _decode_cache_items(constants)
         normalized_params = normalize_items(params_copy)
         filters = invariant_filters or {}
-        normalized_constants_tuple, invariant_tokens = encode_constants(
+        digest_constants, invariant_tokens, non_invariant_constants = _partition_constants(
             const_copy, filters
         )
-        digest_constants = tuple(
-            item for item in normalized_constants_tuple if item[0] not in invariant_tokens
-        )
         digest = compute_digest(route_slug, normalized_params, digest_constants)
-        non_invariant_constants = {
-            name: value for name, value in const_copy.items() if name not in filters
-        }
         return cls(
             route_slug=route_slug,
             parameters=normalized_params,
