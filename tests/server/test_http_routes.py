@@ -33,6 +33,7 @@ def _write_template(root: Path) -> Path:
         SELECT id, region, total
         FROM metrics
         WHERE region = '{{ ctx.parameters.region }}'
+        AND total >= {{ ctx.constants.misc.min_total }}
         ORDER BY id
         LIMIT {{ ctx.parameters.limit }}
         """,
@@ -61,7 +62,7 @@ def _build_validations() -> dict[str, Any]:
 
 
 def _build_request_context() -> dict[str, Any]:
-    return {"constants": {"str": {}}, "parameters": {}}
+    return {"constants": {"str": {}, "misc": {"min_total": 0}}, "parameters": {}}
 
 
 @pytest.fixture
@@ -111,3 +112,18 @@ def test_route_execution_validates_parameters(route_client: TestClient) -> None:
 
     missing = route_client.post("/routes/unknown", json={"parameters": {}})
     assert missing.status_code == 404
+
+
+def test_route_execution_merges_request_constants(route_client: TestClient) -> None:
+    payload = {
+        "parameters": {"limit": 3, "region": "north"},
+        "constants": {"misc": {"min_total": 15}},
+    }
+    response = route_client.post("/routes/reports/daily", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["row_count"] == 1
+    page_url = body["page_template"]["url"].format(page=0, format="json")
+    streamed = route_client.get(page_url)
+    rows = json.loads(streamed.text)
+    assert [row["total"] for row in rows] == [20]

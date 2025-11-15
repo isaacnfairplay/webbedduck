@@ -6,7 +6,8 @@ import copy
 import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from collections.abc import Iterator, Mapping, MutableMapping
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.ipc as paipc
@@ -96,7 +97,7 @@ class RouteQueryRunner:
         validation = self._validations.get(route_slug, _EMPTY_VALIDATION_CONTEXT)
         parameter_context = validation.resolve(parameters)
         renderer_context = _build_renderer_context(
-            self._request_context_store, parameter_context
+            self._request_context_store, parameter_context, constants
         )
         renderer = TemplateRenderer(renderer_context)
         template_text = description.template_path.read_text(encoding="utf-8")
@@ -253,7 +254,9 @@ _MEDIA_TYPES = {
 
 
 def _build_renderer_context(
-    store: RequestContextStore, parameter_context: Any
+    store: RequestContextStore,
+    parameter_context: Any,
+    constants: Mapping[str, Any] | None,
 ) -> Mapping[str, Any]:
     base_context = store.get()
     context: dict[str, Any] = {}
@@ -264,7 +267,27 @@ def _build_renderer_context(
     context["parameters"] = parameter_context.with_configuration(
         copy.deepcopy(base_context.get("parameters", {}))
     )
+    if constants:
+        target = context.setdefault("constants", {})
+        if isinstance(target, MutableMapping):
+            _merge_request_constants(target, constants)
+        else:
+            context["constants"] = copy.deepcopy(constants)
     return context
+
+
+def _merge_request_constants(
+    target: MutableMapping[str, Any], overrides: Mapping[str, Any]
+) -> None:
+    for key, value in overrides.items():
+        if isinstance(value, Mapping):
+            current = target.get(key)
+            if isinstance(current, MutableMapping):
+                _merge_request_constants(current, value)
+                continue
+            target[key] = copy.deepcopy(value)
+            continue
+        target[key] = copy.deepcopy(value)
 
 
 def _build_page_template(request: Request, digest: str) -> str:
