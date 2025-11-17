@@ -16,6 +16,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Any, BinaryIO, Callable, ClassVar, Iterable, Iterator, Mapping, TextIO
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.csv as pacsv
@@ -285,7 +286,7 @@ class _ParquetAdapter(_BaseAdapter):
 
     @contextlib.contextmanager
     def open(self, handle: "DataHandle", page: int | None):
-        if page is None or handle._entry_path is None:
+        if page is None or handle._entry_path is None or handle._predicate is not None:
             sink = pa.BufferOutputStream()
             pq.write_table(handle.as_arrow(page), sink)
             buffer = io.BytesIO(sink.getvalue().to_pybytes())
@@ -361,12 +362,17 @@ class DataHandle:
     Arrow payloads should be retrieved via :meth:`as_arrow`, which returns a
     :class:`pyarrow.Table` without requiring context management. Binary formats
     such as Parquet yield ``BinaryIO`` handles, while textual formats return a
-    ``TextIO`` stream.
+    ``TextIO`` stream. Cached Parquet pages are reused whenever available to
+    avoid re-materialising Arrow payloads unnecessarily.
     """
 
-    _table: pa.Table
     _page_size: int
+    _row_count: int
     _entry_path: Path | None = None
+    _table: pa.Table | None = None
+    _schema: pa.Schema | None = None
+    _predicate: str | None = None
+    _parameters: tuple[Any, ...] = field(default_factory=tuple)
     _ADAPTERS: ClassVar[dict[str, _BaseAdapter]] = {
         adapter.format: adapter
         for adapter in (
@@ -381,6 +387,12 @@ class DataHandle:
     def __post_init__(self) -> None:
         if self._page_size <= 0:
             raise ValueError("page_size must be greater than zero")
+        if self._table is not None and self._schema is None:
+            object.__setattr__(self, "_schema", self._table.schema)
+        if self._table is None and self._schema is None and self._entry_path is not None:
+            object.__setattr__(self, "_schema", pq.read_schema(self._first_page_path()))
+        if self._row_count < 0:
+            raise ValueError("row_count must be non-negative")
 
     @property
     def page_size(self) -> int:
@@ -388,7 +400,7 @@ class DataHandle:
 
     @property
     def row_count(self) -> int:
-        return self._table.num_rows
+        return self._row_count
 
     @property
     def page_count(self) -> int:
@@ -398,7 +410,9 @@ class DataHandle:
 
     @property
     def schema(self) -> pa.Schema:
-        return self._table.schema
+        if self._schema is not None:
+            return self._schema
+        raise ValueError("Schema is unavailable without table or parquet path")
 
     @property
     def formats(self) -> tuple[str, ...]:
@@ -406,11 +420,27 @@ class DataHandle:
 
     @property
     def table(self) -> pa.Table:
+        if self._table is None:
+            raise ValueError("Arrow payload unavailable; use as_arrow instead")
         return self._table
 
     def as_arrow(self, page: int | None = None) -> pa.Table:
         """Return a :class:`pyarrow.Table` slice without context management."""
-        return _slice_table(self._table, self._page_size, page)
+
+        if self._table is not None:
+            return _slice_table(self._table, self._page_size, page)
+        if self._entry_path is None:
+            raise ValueError("Table is unavailable for in-memory results")
+        if self._predicate is None:
+            if page is None:
+                tables = [pq.read_table(candidate) for candidate in self._sorted_pages()]
+                if not tables:
+                    return pa.table({})
+                return tables[0] if len(tables) == 1 else pa.concat_tables(tables)
+            file_path = self._page_path(page)
+            return pq.read_table(file_path)
+
+        return self._scan_filtered(page)
 
     @contextlib.contextmanager
     def open(
@@ -440,6 +470,37 @@ class DataHandle:
         if page >= self.page_count:
             raise ValueError("Requested page exceeds available rows")
         return self._entry_path / f"page-{page:05d}.parquet"
+
+    def _first_page_path(self) -> Path:
+        return self._page_path(0)
+
+    def _sorted_pages(self) -> list[Path]:
+        if self._entry_path is None:
+            return []
+        return sorted(self._entry_path.glob("page-*.parquet"))
+
+    def _scan_filtered(self, page: int | None) -> pa.Table:
+        if self._entry_path is None:
+            raise ValueError("Parquet pages are unavailable for in-memory results")
+        if self._predicate is None:
+            raise ValueError("No predicate configured for filtered scan")
+
+        offset = None
+        if page is not None:
+            if page < 0:
+                raise ValueError("Page numbers are 0-indexed")
+            offset = page * self._page_size
+            if offset >= self.row_count:
+                raise ValueError("Requested page exceeds available rows")
+
+        parquet_glob = str(self._entry_path / "page-*.parquet")
+        where_clause = f" WHERE {self._predicate}" if self._predicate else ""
+        limit_clause = ""
+        if offset is not None:
+            limit_clause = f" LIMIT {self._page_size} OFFSET {offset}"
+        query = f"SELECT * FROM read_parquet('{parquet_glob}'){where_clause}{limit_clause}"
+        with duckdb.connect(database=":memory:") as conn:
+            return conn.execute(query, self._parameters).arrow().read_all()
 
 
 @dataclass(frozen=True)
@@ -708,10 +769,22 @@ class Cache:
         *,
         key: CacheKey,
     ) -> CacheResult:
-        table = self._storage.read_entry(entry)
-        filtered = self._filters.apply(table, key)
+        predicate, parameters = self._predicate_for(key)
+        if predicate is not None:
+            row_count = self._filtered_row_count(entry, predicate, parameters)
+            return self._build_result(
+                None,
+                key=key,
+                entry=entry,
+                from_cache=True,
+                from_superset=False,
+                predicate=predicate,
+                parameters=parameters,
+                row_override=row_count,
+            )
+
         return self._build_result(
-            filtered,
+            None,
             key=key,
             entry=entry,
             from_cache=True,
@@ -738,10 +811,23 @@ class Cache:
                 page_size=self._config.page_size,
                 invariants={},
             )
-        stored = self._storage.read_entry(entry)
-        stored_filtered = self._filters.apply(stored, key)
+
+        predicate, parameters = self._predicate_for(key)
+        if predicate is not None:
+            row_count = self._filtered_row_count(entry, predicate, parameters)
+            return self._build_result(
+                None,
+                key=key,
+                entry=entry,
+                from_cache=False,
+                from_superset=False,
+                predicate=predicate,
+                parameters=parameters,
+                row_override=row_count,
+            )
+
         return self._build_result(
-            stored_filtered,
+            None,
             key=key,
             entry=entry,
             from_cache=False,
@@ -750,15 +836,28 @@ class Cache:
 
     def _build_result(
         self,
-        table: pa.Table,
+        table: pa.Table | None,
         *,
         key: CacheKey,
         entry: CacheEntry,
         from_cache: bool,
         from_superset: bool,
+        predicate: str | None = None,
+        parameters: tuple[Any, ...] | list[Any] = (),
+        row_override: int | None = None,
     ) -> CacheResult:
-        entry_path = entry.path if table.num_rows == entry.row_count else None
-        data = DataHandle(table, entry.page_size, entry_path)
+        row_count = entry.row_count if table is None else table.num_rows
+        if row_override is not None:
+            row_count = row_override
+        entry_path = entry.path if table is None or table.num_rows == entry.row_count else None
+        data = DataHandle(
+            _page_size=entry.page_size,
+            _row_count=row_count,
+            _entry_path=entry_path,
+            _table=table,
+            _predicate=predicate,
+            _parameters=tuple(parameters),
+        )
         return CacheResult(
             data=data,
             from_cache=from_cache,
@@ -769,3 +868,58 @@ class Cache:
             created_at=entry.created_at,
             expires_at=entry.expires_at,
         )
+
+    def _predicate_for(self, key: CacheKey) -> tuple[str | None, tuple[Any, ...]]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+
+        for name, tokens in key.invariant_tokens.items():
+            filter_config = self._invariants.get(name)
+            if filter_config is None or not tokens:
+                continue
+            column = filter_config.column or name
+            column_expr = self._quote_identifier(column)
+            target_expr = column_expr if not filter_config.case_insensitive else f"lower({column_expr})"
+            normalized_tokens = [
+                token.lower() if filter_config.case_insensitive else token
+                for token in tokens
+                if token != NULL_SENTINEL
+            ]
+            token_clause = None
+            if normalized_tokens:
+                placeholders = ", ".join("?" for _ in normalized_tokens)
+                token_clause = f"{target_expr} IN ({placeholders})"
+                parameters.extend(normalized_tokens)
+            clauses_for_filter: list[str] = []
+            if token_clause:
+                clauses_for_filter.append(token_clause)
+            if NULL_SENTINEL in tokens:
+                clauses_for_filter.append(f"{column_expr} IS NULL")
+            if clauses_for_filter:
+                joined = " OR ".join(clauses_for_filter)
+                clauses.append(joined if len(clauses_for_filter) == 1 else f"({joined})")
+
+        for column, target in key.constant_values.items():
+            if column in self._invariants:
+                continue
+            column_expr = self._quote_identifier(column)
+            if target is None:
+                clauses.append(f"{column_expr} IS NULL")
+                continue
+            clauses.append(f"{column_expr} = ?")
+            parameters.append(target)
+
+        predicate = " AND ".join(clauses)
+        return (predicate or None, tuple(parameters))
+
+    def _filtered_row_count(
+        self, entry: CacheEntry, predicate: str, parameters: tuple[Any, ...]
+    ) -> int:
+        parquet_glob = str(entry.path / "page-*.parquet")
+        query = f"SELECT count(*) FROM read_parquet('{parquet_glob}') WHERE {predicate}"
+        with duckdb.connect(database=":memory:") as conn:
+            return int(conn.execute(query, parameters).fetchone()[0])
+
+    def _quote_identifier(self, identifier: str) -> str:
+        escaped = identifier.replace('"', '""')
+        return f'"{escaped}"'

@@ -1,5 +1,15 @@
 # Branch Changelog
 
+## DuckDB-backed filtered cache materialisation
+- Apply invariant and constant filters directly against cached Parquet pages via DuckDB instead of materialising intermediate Arrow tables.
+- Return filtered responses through Parquet-backed `DataHandle` instances that keep page counts in sync with DuckDB row counts.
+- Stream Parquet, CSV, and JSON formats from filtered queries without relying on precomputed Arrow payloads.
+
+## Parquet-first cache materialisation
+- Avoid re-reading cached results on hits without invariant filters by building data handles directly from persisted Parquet pages and metadata.
+- Let `DataHandle` lazily hydrate Arrow tables from cached Parquet files, retaining schema awareness without keeping full tables in memory.
+- Reuse on-disk Parquet pages whenever possible across adapters so cache responses no longer re-materialise Arrow payloads unless filtering requires it.
+
 ## Complexity reduction: directive guard dispatch
 - Replace the branching-heavy `_directives_for_spec` guard handling with a data-driven registry so each guard declares a concise builder.
 - Add focused helpers for choices, regex, mapping-based, and compare guards to cut duplicated filtering logic while preserving option semantics.
