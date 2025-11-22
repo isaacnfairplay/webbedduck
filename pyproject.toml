@@ -10,8 +10,16 @@ dependencies = [
     "fastapi>=0.110.0",
 ]
 
-[dependency-groups]
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["webbed_duck"]
+
+[project.optional-dependencies]
 dev = [
     "pytest>=8.4.2",
     "httpx>=0.27",
+    "radon>=6.0.1",
 ]
