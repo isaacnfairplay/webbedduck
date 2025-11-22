@@ -106,3 +106,7 @@
 - Introduce a `CacheMetadataSummary` dataclass plus a `peek_metadata` helper that reads only `metadata.json`, ensuring freshness checks match the response envelope while keeping Parquet untouched.
 - Add FastAPI response models and a `GET /cache/{digest}` route that exposes metadata summaries along with download URL templates for page-level exports.
 - Cover the helper and HTTP route with regression tests that assert the metadata flags mirror cached responses and that Parquet reads are skipped during metadata peeks.
+
+## Packaging and tooling fixes for dev workflows
+- Lock editable installs to the `webbed_duck` package, switch dev extras to `project.optional-dependencies`, and include `radon` so `pip install -e .[dev]` succeeds instead of failing on multi-package discovery.
+- Ensure the dev extra pulls in `httpx` for FastAPI test clients, unblocking the test suite and complexity-report command locally.
